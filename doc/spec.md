@@ -241,3 +241,12 @@ iPhone / iPad / Mac
 
 ### Phase 6：Synology DS920+ 容器部署驗收
 * 於 Container Manager 部署容器並驗收 iPhone、Mac 跨裝置操作與離線功能。
+
+### Phase 7：手機 App 離線優先與手動雙向同步架構 (Offline-First Two-Way Sync)
+* **核心理念**：平時完全離線秒查、回到家按一個按鈕手動雙向同步。
+* **技術規格**：
+  * 全面使用 UUID 作為客戶端與伺服器端的唯一對齊識別碼，避免自增整數 ID 撞號。
+  * 手機端維護本地離線資料庫（IndexedDB）與待同步隊列（Outbox Queue：新增、修改、軟刪除標記）。
+  * 畫面提供「🔄 立即同步」按鈕，主動推送 Outbox 異動至 NAS，並拉取 NAS 增量更新（`updated_at > last_sync_time`）。
+  * 衝突解決採「最後寫入者為準（Last-Write-Wins）」與「軟刪除（Soft Delete）」機制。
+
