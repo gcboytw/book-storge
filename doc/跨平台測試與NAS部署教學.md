@@ -70,7 +70,10 @@ uv run uvicorn app.main:app --reload --port 8000
   git clone https://github.com/gcboytw/book-storge.git book-storage
   cd book-storage
   ```
-* **方式 2**：透過 DSM「File Station」，在 `docker/` 資料夾下建立 `book-storage` 資料夾，並把專案檔案上傳進去。
+* **方式 2**：透過 DSM「File Station」，在 `docker/` 資料夾下建立 `book-storage` 資料夾，並把專案完整檔案上傳進去。
+
+> 💡 **重要觀念說明（為什麼需要完整上傳專案檔案？）**：  
+> 因為本專案的 `docker-compose.yml` 設定了 `build: .`（由 NAS 本地現場編譯 Docker 映像檔），因此上傳至 `/docker/book-storage` 的資料夾內**必須包含完整的專案原始碼**（含 `Dockerfile`、`pyproject.toml`、`uv.lock`、`app/` 程式碼等）。**不能只上傳 `docker-compose.yml` 單一檔案**，否則 Container Manager 建置時會因為找不到 `Dockerfile` 與專案程式碼而報錯。
 
 #### 步驟 3：設定 NAS 環境變數 (`.env`)
 在 NAS 的專案目錄下複製 `.env.example` 為 `.env`：
@@ -100,10 +103,10 @@ HOST=0.0.0.0
 2. 點選左側選單的 **「專案」 (Project)** ➔ 點擊右上角 **「新增」 (Create)**。
 3. 填寫專案設定：
    - **專案名稱**：`book-storage`
-   - **路徑**：選擇剛才上傳檔案的目錄（例如 `/docker/book-storage`）。
+   - **路徑**：選擇剛才上傳完整檔案的目錄（例如 `/docker/book-storage`）。
    - **來源**：選擇 **「使用現有的 docker-compose.yml 建立專案」**。
 4. 點選「下一步」，Container Manager 會自動讀取 `docker-compose.yml` 內容。
-5. 勾選 **「建立專案後點擊套用並啟動專案」**，點擊 **「套用」**。系統會自動根據 `Dockerfile` 完成 Image 建置並啟動服務。
+5. 勾選 **「建立專案後點擊套用並啟動專案」**，點擊 **「套用」**。系統會自動根據同目錄下的 `Dockerfile` 完成 Image 建置並啟動服務。
 
 ##### 方式 B：透過 SSH 指令列啟動
 在專案目錄下透過 SSH 執行：
@@ -131,6 +134,32 @@ docker-compose exec app uv run scripts/import_legacy_csv.py
    docker-compose exec app uv run scripts/import_legacy_csv.py
    ```
    或者直接把 Windows 本機生成的 `local_dev.db` 與 `app/static/covers/` 資料夾直接複製貼到 NAS 的專案目錄中！
+
+---
+
+### 🔄 後續程式碼修改與更新生效流程
+
+當您後續在本機修改了程式碼（例如 `app/` 裡面的 Python 邏輯或修正 Bug）並希望同步更新至 NAS 時，請依循以下兩步驟：
+
+#### 步驟 1：更新 NAS 上的專案檔案
+* **推薦做法（Git 工作流，最省事且不易漏檔）**：
+  1. 在本機將修改好的程式碼 commit 並推送到 GitHub：`git push`。
+  2. 登入 NAS（或透過 SSH），在專案目錄 `/docker/book-storage` 執行：`git pull` 即可一鍵拉取最新程式碼。
+* **手動做法（File Station 上傳覆蓋）**：
+  直接透過 DSM「File Station」將本機修改好的檔案上傳並覆蓋 NAS 上的舊檔案（**注意：請勿上傳本機的 `.venv` 資料夾**）。
+
+#### 步驟 2：重建容器讓新程式碼生效
+> ⚠️ **重要觀念**：僅覆蓋檔案容器不會自動更新，因為容器需要重新讀取檔進行編譯打包！
+
+* **方式 A：使用 Container Manager 圖形介面（推薦）**：
+  1. 開啟 **Container Manager** ➔ 點選 **「專案」 (Project)**。
+  2. 點選 `book-storage` 專案 ➔ 點擊右上角 **「操作 (Action)」** ➔ 選擇 **「重建 (Rebuild)」**（或重置）。
+  3. 系統將會重新編譯最新程式碼並重啟服務。
+* **方式 B：透過 SSH 指令列**：
+  在專案目錄下執行：
+  ```bash
+  docker-compose up -d --build
+  ```
 
 ---
 
