@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>個人藏書庫 BookStorage</title>
+  <meta name="description" content="跨裝置個人藏書管理與離線圖書檢索 PWA">
+  
+  <!-- PWA Settings -->
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="我的藏書">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">
+        <span class="brand-icon">📚</span>
+        <span>藏書庫</span>
+      </div>
+      <div class="header-actions">
+        <button id="theme-toggle" class="btn-icon" title="切換深淺色主題">🌙</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Offline Status Banner -->
+  <div id="offline-banner" class="offline-banner">
+    ⚡ 目前處於離線狀態：使用本地 IndexedDB 秒查個人藏書
+  </div>
+
+  <!-- Main Content Area -->
+  <main class="app-main">
+    <!-- Controls Bar -->
+    <div class="controls-bar">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-input" class="search-input" placeholder="搜尋書名、作者、ISBN、出版社..." autocomplete="off">
+      </div>
+    </div>
+
+    <!-- Filter & Shelves Horizontal Tabs -->
+    <div id="filter-tabs" class="filter-tabs">
+      <!-- Generated Dynamically -->
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="stats-summary">
+      <span id="total-count">載入藏書中...</span>
+    </div>
+
+    <!-- Books Card Grid -->
+    <div id="books-grid" class="books-grid">
+      <!-- Book Cards -->
+    </div>
+
+    <!-- Pagination Controls -->
+    <div id="pagination-container" class="pagination-container">
+      <!-- Generated Dynamically -->
+    </div>
+
+    <!-- Page Footer with Back to Top -->
+    <footer class="app-footer">
+      <button id="btn-back-to-top" class="btn btn-secondary btn-back-to-top">
+        ⬆️ 回到頁首
+      </button>
+      <p class="footer-note">BookStorage 個人藏書庫</p>
+    </footer>
+  </main>
+
+  <!-- Floating Action Buttons (FAB) -->
+  <div class="fab-container">
+    <button id="btn-open-manual-add" class="btn-fab btn-fab-secondary" title="手動輸入 ISBN 查詢或自訂新增書籍">
+      ✍️
+    </button>
+    <button id="btn-open-scan" class="btn-fab" title="掃描 ISBN 條碼新增書籍">
+      📷
+    </button>
+  </div>
+
+  <!-- Manual Add / ISBN Lookup Modal -->
+  <div id="manual-add-modal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">📖 新增書籍</h3>
+        <button id="btn-close-manual-add" class="btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- ISBN Quick Search Box -->
+        <div class="manual-isbn-search-card">
+          <label class="form-label" style="font-weight:600;">🔍 手動輸入 ISBN 快速查詢書目</label>
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem;">
+            <input type="text" id="manual-isbn-input" class="form-control" placeholder="輸入 10 或 13 碼 ISBN，例：9789867848871" autocomplete="off">
+            <button id="btn-manual-isbn-search" class="btn btn-primary" style="white-space: nowrap;">
+              查詢
+            </button>
+          </div>
+          <p id="manual-isbn-hint" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem;">
+            將自動查詢三民書局、OpenLibrary、Google Books 等資料庫
+          </p>
+        </div>
+
+        <div style="display: flex; align-items: center; margin: 1.25rem 0 1rem; color: var(--text-muted); font-size: 0.85rem;">
+          <div style="flex:1; height: 1px; background: var(--border-color);"></div>
+          <span style="padding: 0 0.75rem;">或直接填寫書籍資料</span>
+          <div style="flex:1; height: 1px; background: var(--border-color);"></div>
+        </div>
+
+        <!-- Manual Book Form -->
+        <form id="custom-book-form">
+          <div class="form-group">
+            <label class="form-label">書名 <span style="color: var(--danger);">*</span></label>
+            <input type="text" id="manual-title" class="form-control" placeholder="請輸入書名" required>
+          </div>
+
+          <div class="form-row" style="display: flex; gap: 0.75rem;">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label">作者</label>
+              <input type="text" id="manual-author" class="form-control" placeholder="作者姓名">
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label">出版社</label>
+              <input type="text" id="manual-publisher" class="form-control" placeholder="出版社名稱">
+            </div>
+          </div>
+
+          <div class="form-row" style="display: flex; gap: 0.75rem;">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label">ISBN-13 / 條碼</label>
+              <input type="text" id="manual-isbn13" class="form-control" placeholder="978...">
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label">出版年份 / 日期</label>
+              <input type="text" id="manual-pubdate" class="form-control" placeholder="例：2023 或 2023/05/01">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">封面圖片網址 (URL)</label>
+            <input type="url" id="manual-cover" class="form-control" placeholder="https://...">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">分類標籤</label>
+            <input type="text" id="manual-category" class="form-control" placeholder="例：心理學、程式開發、文學">
+          </div>
+
+          <div class="form-row" style="display: flex; gap: 0.75rem;">
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label">所屬書架</label>
+              <select id="manual-shelf" class="form-control">
+                <!-- Generated dynamically -->
+              </select>
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label class="form-label">閱讀狀態</label>
+              <select id="manual-status" class="form-control">
+                <option value="unread">⏳ 未讀</option>
+                <option value="reading">📖 閱讀中</option>
+                <option value="read">✅ 已讀</option>
+                <option value="abandoned">❌ 棄讀</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">個人評分</label>
+            <select id="manual-rating" class="form-control">
+              <option value="">無評分</option>
+              <option value="5">★★★★★ (5 星)</option>
+              <option value="4">★★★★☆ (4 星)</option>
+              <option value="3">★★★☆☆ (3 星)</option>
+              <option value="2">★★☆☆☆ (2 星)</option>
+              <option value="1">★☆☆☆☆ (1 星)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">書籍簡介 / 內容大意</label>
+            <textarea id="manual-desc" class="form-control" rows="2" placeholder="簡述這本書的內容..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">備忘筆記 / 心得</label>
+            <textarea id="manual-notes" class="form-control" rows="2" placeholder="記錄個人備忘或心得..."></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="btn-cancel-manual-add">取消</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-manual-add">➕ 儲存並加入藏書</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scan Modal -->
+  <div id="scan-modal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">📷 掃描書籍條碼 (ISBN)</h3>
+        <button id="btn-close-scan" class="btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="scanner-viewport-wrap">
+          <video id="scanner-video" playsinline></video>
+          <div class="scanner-laser"></div>
+        </div>
+        <p id="scan-status-text" style="text-align: center; font-size: 0.9rem; color: var(--text-secondary); margin-top: 0.5rem;">
+          請將手機鏡頭對準書籍背面的 ISBN 條碼
+        </p>
+        <div style="text-align: center; margin-top: 1rem;">
+          <button id="btn-switch-to-manual" class="btn btn-secondary" style="font-size: 0.85rem;">
+            ⌨️ 改為手動輸入 ISBN
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="document.getElementById('btn-close-scan').click()">關閉相機</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Book Detail / Edit / Add Modal -->
+  <div id="book-detail-modal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="detail-modal-title" class="modal-title">書籍資訊</h3>
+        <button id="btn-close-detail" class="btn-icon">✕</button>
+      </div>
+      <div id="detail-modal-body" class="modal-body">
+        <!-- Form / Info -->
+      </div>
+      <div id="detail-modal-footer" class="modal-footer">
+        <!-- Actions -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Scroll To Top Floating Button (Visible when scrolled) -->
+  <button id="floating-back-to-top" class="floating-back-to-top" title="回到頁首">
+    ⬆️
+  </button>
+
+  <!-- JavaScript Modules -->
+  <script src="/static/js/db_offline.js"></script>
+  <script src="/static/js/scanner.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

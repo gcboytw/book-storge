@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  book-storage:
+    build: .
+    container_name: book-storage
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # 掛載封面圖檔資料夾至 NAS 實體路徑（方便在 Windows 檔案總管放入圖檔）
+      - ./app/static/covers:/app/app/static/covers
+      # 若使用 SQLite 本機資料庫可掛載持久化
+      - ./local_dev.db:/app/local_dev.db
+    environment:
+      - TZ=Asia/Taipei

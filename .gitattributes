@@ -1,0 +1,10 @@
+# 強制所有文字檔案在簽出與簽入時均維持 LF 換行（避免 Windows CRLF 導致 Docker Linux 容器報錯）
+* text=auto eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
