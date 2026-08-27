@@ -7,13 +7,14 @@ from app.schemas.shelf import ShelfResponse
 class MyBookBase(BaseModel):
     book_id: int
     shelf_id: int | None = None
-    status: str = Field("unread", description="閱讀狀態: unread, reading, read, abandoned")
+    status: str = Field("unread", description="閱讀狀態")
     purchase_date: date | None = None
     purchase_price: Decimal | None = None
     purchase_place: str | None = None
     condition: str | None = None
-    rating: int | None = Field(None, ge=1, le=5, description="1~5 顆星")
+    rating: int | None = None
     notes: str | None = None
+    uuid: str | None = None
 
 class MyBookCreate(MyBookBase):
     pass
@@ -25,11 +26,12 @@ class MyBookUpdate(BaseModel):
     purchase_price: Decimal | None = None
     purchase_place: str | None = None
     condition: str | None = None
-    rating: int | None = Field(None, ge=1, le=5)
+    rating: int | None = None
     notes: str | None = None
 
 class MyBookResponse(BaseModel):
     id: int
+    uuid: str | None = None
     book_id: int
     shelf_id: int | None = None
     status: str

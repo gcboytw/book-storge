@@ -1,16 +1,21 @@
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import Column, Integer, BigInteger, String, Text, Numeric, Date, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+
+def get_taipei_now():
+    return datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
 
 class MyBook(Base):
     __tablename__ = "my_books"
 
     id = Column(Integer().with_variant(BigInteger, "mysql", "mariadb"), primary_key=True, autoincrement=True, index=True)
+    uuid = Column(String(36), default=lambda: str(uuid.uuid4()), unique=True, index=True)
     book_id = Column(Integer().with_variant(BigInteger, "mysql", "mariadb"), ForeignKey("books.id", ondelete="CASCADE"), nullable=False, index=True)
     shelf_id = Column(Integer().with_variant(BigInteger, "mysql", "mariadb"), ForeignKey("shelves.id", ondelete="SET NULL"), nullable=True, index=True)
     
-    # 閱讀狀態: 'unread' (未讀), 'reading' (閱讀中), 'read' (已讀), 'abandoned' (棄讀)
+    # 閱讀狀態 (保留相容性)
     status = Column(String(30), default="unread", index=True)
     
     # 購買與書況
@@ -23,8 +28,8 @@ class MyBook(Base):
     rating = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_taipei_now)
+    updated_at = Column(DateTime, default=get_taipei_now, onupdate=get_taipei_now)
 
     # 關聯
     book = relationship("Book", back_populates="my_books")

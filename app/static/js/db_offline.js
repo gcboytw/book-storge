@@ -3,7 +3,7 @@
  */
 
 const DB_NAME = "BookStorageOfflineDB";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_BOOKS = "cached_books";
 const STORE_META = "sync_metadata";
 
@@ -22,15 +22,19 @@ class OfflineStorage {
         const db = event.target.result;
         
         // 書籍儲存庫
+        let store;
         if (!db.objectStoreNames.contains(STORE_BOOKS)) {
-          const store = db.createObjectStore(STORE_BOOKS, { keyPath: "my_book_id" });
-          store.createIndex("isbn13", "isbn13", { unique: false });
-          store.createIndex("isbn10", "isbn10", { unique: false });
-          store.createIndex("title", "title", { unique: false });
-          store.createIndex("author", "author", { unique: false });
-          store.createIndex("status", "status", { unique: false });
-          store.createIndex("shelf_id", "shelf_id", { unique: false });
+          store = db.createObjectStore(STORE_BOOKS, { keyPath: "my_book_id" });
+        } else {
+          store = event.target.transaction.objectStore(STORE_BOOKS);
         }
+
+        if (!store.indexNames.contains("uuid")) store.createIndex("uuid", "uuid", { unique: false });
+        if (!store.indexNames.contains("isbn13")) store.createIndex("isbn13", "isbn13", { unique: false });
+        if (!store.indexNames.contains("isbn10")) store.createIndex("isbn10", "isbn10", { unique: false });
+        if (!store.indexNames.contains("title")) store.createIndex("title", "title", { unique: false });
+        if (!store.indexNames.contains("author")) store.createIndex("author", "author", { unique: false });
+        if (!store.indexNames.contains("shelf_id")) store.createIndex("shelf_id", "shelf_id", { unique: false });
 
         // 同步狀態紀錄庫
         if (!db.objectStoreNames.contains(STORE_META)) {
@@ -104,52 +108,41 @@ class OfflineStorage {
   }
 
   /**
-   * 離線全文檢索（比對書名、作者、ISBN、出版社、心得）
-   */
-  async search(query, statusFilter = null, shelfFilter = null) {
-    const books = await this.getAllBooks();
-    const q = query ? query.toLowerCase().trim() : "";
-
-    return books.filter((item) => {
-      // 狀態篩選
-      if (statusFilter && item.status !== statusFilter) {
-        return false;
-      }
-      // 書架篩選
-      if (shelfFilter !== null && shelfFilter !== undefined) {
-        if (shelfFilter === 0 && item.shelf_id !== null) return false;
-        if (shelfFilter > 0 && item.shelf_id !== shelfFilter) return false;
-      }
-
-      if (!q) return true;
-
-      const titleMatch = item.title && item.title.toLowerCase().includes(q);
-      const subMatch = item.subtitle && item.subtitle.toLowerCase().includes(q);
-      const authorMatch = item.author && item.author.toLowerCase().includes(q);
-      const pubMatch = item.publisher && item.publisher.toLowerCase().includes(q);
-      const isbn13Match = item.isbn13 && item.isbn13.includes(q);
-      const isbn10Match = item.isbn10 && item.isbn10.includes(q);
-      const notesMatch = item.notes && item.notes.toLowerCase().includes(q);
-
-      return titleMatch || subMatch || authorMatch || pubMatch || isbn13Match || isbn10Match || notesMatch;
-    });
-  }
-
-  /**
-   * 取得同步狀態資訊
+   * 取得最後同步的 Metadata
    */
   async getSyncMeta() {
     await this.init();
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const tx = this.db.transaction(STORE_META, "readonly");
       const store = tx.objectStore(STORE_META);
       const request = store.get("last_sync");
 
       request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => resolve(null);
+      request.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  /**
+   * 依關鍵字離線快速檢索
+   */
+  async searchOffline(queryStr) {
+    const all = await this.getAllBooks();
+    if (!queryStr || !queryStr.trim()) return all;
+
+    const q = queryStr.toLowerCase().trim();
+    return all.filter((b) => {
+      return (
+        (b.title && b.title.toLowerCase().includes(q)) ||
+        (b.author && b.author.toLowerCase().includes(q)) ||
+        (b.publisher && b.publisher.toLowerCase().includes(q)) ||
+        (b.isbn13 && b.isbn13.includes(q)) ||
+        (b.isbn10 && b.isbn10.includes(q)) ||
+        (b.ean && b.ean.includes(q)) ||
+        (b.notes && b.notes.toLowerCase().includes(q))
+      );
     });
   }
 }
 
-// 實例化掛載至全域
+// 建立全域實例
 window.offlineStorage = new OfflineStorage();

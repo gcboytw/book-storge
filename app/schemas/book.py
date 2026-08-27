@@ -17,6 +17,7 @@ class BookBase(BaseModel):
     ean: str | None = None
     cover_url: str | None = None
     metadata_source: str = "Manual"
+    uuid: str | None = None
 
 class BookCreate(BookBase):
     pass
@@ -39,6 +40,7 @@ class BookUpdate(BaseModel):
 
 class BookResponse(BookBase):
     id: int
+    uuid: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

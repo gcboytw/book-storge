@@ -1,5 +1,5 @@
 /**
- * app.js - 個人藏書庫 SPA 主畫面邏輯、分頁、排序與離線整合
+ * app.js - 個人藏書庫 SPA 主畫面邏輯、分頁、排序、封面替換與離線整合
  */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -33,13 +33,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // 狀態管理
   const PAGE_SIZE = 50; // 每頁 50 本書籍
   let currentPage = 1;
-  let currentFilter = "all"; // 'all', 'unread', 'reading', 'read', 'abandoned', 或 shelf:ID
+  let currentFilter = "all"; // 'all' 或 shelf:ID
   let currentSearch = "";
   let cachedBooks = [];
   let shelvesList = [];
   let activeBook = null;
   let scannerInstance = null;
-  let tempLookupBookId = null; // 暫存查詢到已存在的 book id
+  let tempLookupBookId = null;
 
   // 1. 主題切換 (Light / Dark)
   const initTheme = () => {
@@ -104,7 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("offline", updateOnlineStatus);
   updateOnlineStatus();
 
-  // 4. 排序輔助函式：檔案建立新 -> 舊 (created_at 降序，其次為 id 降序)
+  // 4. 排序輔助函式：建立時間新 -> 舊 (created_at 降序，其次為 id 降序)
   function sortBooksByCreatedAtDesc(books) {
     return books.sort((a, b) => {
       const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -164,6 +164,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 轉為格式相容的清單
     const formatted = offlineBooks.map((item) => ({
       id: item.my_book_id,
+      uuid: item.uuid,
       book_id: item.book_id,
       status: item.status,
       shelf_id: item.shelf_id,
@@ -176,6 +177,7 @@ document.addEventListener("DOMContentLoaded", () => {
       updated_at: item.updated_at || null,
       book: {
         id: item.book_id,
+        uuid: item.book_uuid,
         title: item.title,
         subtitle: item.subtitle,
         author_display: item.author,
@@ -196,13 +198,10 @@ document.addEventListener("DOMContentLoaded", () => {
     applyFiltersAndRender();
   }
 
-  // 6. 書架與分類標籤渲染
+  // 6. 書架與分類標籤渲染 (僅保留「全部書籍」與「所屬書架」)
   function renderFilterTabs() {
     let html = `
-      <button class="filter-chip ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">全部藏書</button>
-      <button class="filter-chip ${currentFilter === 'reading' ? 'active' : ''}" data-filter="reading">📖 閱讀中</button>
-      <button class="filter-chip ${currentFilter === 'unread' ? 'active' : ''}" data-filter="unread">⏳ 未讀</button>
-      <button class="filter-chip ${currentFilter === 'read' ? 'active' : ''}" data-filter="read">✅ 已讀</button>
+      <button class="filter-chip ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">全部書籍</button>
     `;
 
     for (const shelf of shelvesList) {
@@ -232,12 +231,14 @@ document.addEventListener("DOMContentLoaded", () => {
     manualShelfSelect.innerHTML = shelfOptions;
   }
 
-  // 7. 格式化日期時間
+  // 7. 格式化日期時間 (UTC+8 台灣時間)
   function formatDateTime(dateStr) {
     if (!dateStr) return "無紀錄";
     try {
+      // 支援各種 ISO 或 standard 日期格式
       const d = new Date(dateStr);
       if (isNaN(d.getTime())) return dateStr;
+      
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, "0");
       const day = String(d.getDate()).padStart(2, "0");
@@ -249,17 +250,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // 8. 篩選與渲染卡片（含 50 本分頁與建立時間新->舊排序）
+  // 8. 篩選與渲染卡片（純粹卡片：書名、作者、書封）
   function applyFiltersAndRender() {
     let filtered = [...cachedBooks];
 
-    // 狀態或書架篩選
+    // 書架篩選
     if (currentFilter !== "all") {
       if (currentFilter.startsWith("shelf:")) {
         const shelfId = parseInt(currentFilter.replace("shelf:", ""), 10);
         filtered = filtered.filter((b) => b.shelf_id === shelfId);
-      } else {
-        filtered = filtered.filter((b) => b.status === currentFilter);
       }
     }
 
@@ -279,19 +278,15 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    // 排序：確保以建立時間新->舊
+    // 依建立時間新->舊排序
     sortBooksByCreatedAtDesc(filtered);
 
     // 計算分頁
     const totalItems = filtered.length;
     const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
 
-    if (currentPage > totalPages) {
-      currentPage = totalPages;
-    }
-    if (currentPage < 1) {
-      currentPage = 1;
-    }
+    if (currentPage > totalPages) currentPage = totalPages;
+    if (currentPage < 1) currentPage = 1;
 
     const startIndex = (currentPage - 1) * PAGE_SIZE;
     const endIndex = Math.min(startIndex + PAGE_SIZE, totalItems);
@@ -334,23 +329,17 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    let html = ``;
-
-    // 首頁與上一頁
-    html += `
+    let html = `
       <button class="pagination-btn" id="page-first" ${currentPage === 1 ? 'disabled' : ''} title="第一頁">«</button>
       <button class="pagination-btn" id="page-prev" ${currentPage === 1 ? 'disabled' : ''} title="上一頁">‹ 上一頁</button>
     `;
 
-    // 產生頁碼按鈕 (最多顯示當前頁前後 2 頁)
     let startPage = Math.max(1, currentPage - 2);
     let endPage = Math.min(totalPages, currentPage + 2);
 
     if (startPage > 1) {
       html += `<button class="pagination-btn" data-page="1">1</button>`;
-      if (startPage > 2) {
-        html += `<span class="pagination-ellipsis">...</span>`;
-      }
+      if (startPage > 2) html += `<span class="pagination-ellipsis">...</span>`;
     }
 
     for (let p = startPage; p <= endPage; p++) {
@@ -358,13 +347,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (endPage < totalPages) {
-      if (endPage < totalPages - 1) {
-        html += `<span class="pagination-ellipsis">...</span>`;
-      }
+      if (endPage < totalPages - 1) html += `<span class="pagination-ellipsis">...</span>`;
       html += `<button class="pagination-btn" data-page="${totalPages}">${totalPages}</button>`;
     }
 
-    // 下一頁與末頁
     html += `
       <button class="pagination-btn" id="page-next" ${currentPage === totalPages ? 'disabled' : ''} title="下一頁">下一頁 ›</button>
       <button class="pagination-btn" id="page-last" ${currentPage === totalPages ? 'disabled' : ''} title="最後一頁">»</button>
@@ -373,57 +359,34 @@ document.addEventListener("DOMContentLoaded", () => {
 
     paginationContainer.innerHTML = html;
 
-    // 綁定分頁按鈕事件
     const btnFirst = document.getElementById("page-first");
     const btnPrev = document.getElementById("page-prev");
     const btnNext = document.getElementById("page-next");
     const btnLast = document.getElementById("page-last");
 
-    if (btnFirst) {
-      btnFirst.onclick = () => goToPage(1);
-    }
-    if (btnPrev) {
-      btnPrev.onclick = () => goToPage(currentPage - 1);
-    }
-    if (btnNext) {
-      btnNext.onclick = () => goToPage(currentPage + 1);
-    }
-    if (btnLast) {
-      btnLast.onclick = () => goToPage(totalPages);
-    }
+    if (btnFirst) btnFirst.onclick = () => goToPage(1);
+    if (btnPrev) btnPrev.onclick = () => goToPage(currentPage - 1);
+    if (btnNext) btnNext.onclick = () => goToPage(currentPage + 1);
+    if (btnLast) btnLast.onclick = () => goToPage(totalPages);
 
     paginationContainer.querySelectorAll("button[data-page]").forEach((btn) => {
-      btn.onclick = () => {
-        const p = parseInt(btn.dataset.page, 10);
-        goToPage(p);
-      };
+      btn.onclick = () => goToPage(parseInt(btn.dataset.page, 10));
     });
   }
 
   function goToPage(page) {
     currentPage = page;
     applyFiltersAndRender();
-    // 切換頁面後平滑滾動到書架網格頂端
     const controlsBar = document.querySelector(".controls-bar");
     if (controlsBar) {
       controlsBar.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
 
-  function getStatusLabel(status) {
-    switch (status) {
-      case "reading": return { label: "閱讀中", cls: "status-reading" };
-      case "read": return { label: "已讀", cls: "status-read" };
-      case "abandoned": return { label: "棄讀", cls: "status-abandoned" };
-      default: return { label: "未讀", cls: "status-unread" };
-    }
-  }
-
+  // 10. 卡片渲染（僅書籍名稱、作者、書封、書架/出版社）
   function renderBookCard(item) {
     const book = item.book || {};
-    const statusInfo = getStatusLabel(item.status);
     const coverUrl = book.cover_url || "";
-    const stars = item.rating ? "★".repeat(item.rating) + "☆".repeat(5 - item.rating) : "";
 
     return `
       <div class="book-card" data-id="${item.id}">
@@ -441,32 +404,30 @@ document.addEventListener("DOMContentLoaded", () => {
               <span style="font-size: 0.75rem; margin-top: 0.5rem;">${book.title}</span>
             </div>
           `}
-          <span class="book-badge ${statusInfo.cls}">${statusInfo.label}</span>
         </div>
         <div class="book-details">
           <div class="book-title" title="${book.title}">${book.title}</div>
           <div class="book-author">${book.author_display || "作者不詳"}</div>
           <div class="book-meta-footer">
             <span>${item.shelf ? item.shelf.name : (book.publisher || "")}</span>
-            ${stars ? `<span style="color: #f59e0b;">${stars}</span>` : ""}
           </div>
         </div>
       </div>
     `;
   }
 
-  // 10. 搜尋防抖監聽
+  // 11. 搜尋防抖
   let debounceTimer;
   searchInput.addEventListener("input", (e) => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       currentSearch = e.target.value;
-      currentPage = 1; // 搜尋時重設至第一頁
+      currentPage = 1;
       applyFiltersAndRender();
     }, 200);
   });
 
-  // 11. 條碼掃描 Modal
+  // 12. 條碼掃描 Modal
   if (btnOpenScan) {
     btnOpenScan.addEventListener("click", () => {
       scanModal.classList.add("active");
@@ -475,9 +436,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (btnCloseScan) {
-    btnCloseScan.addEventListener("click", () => {
-      closeScanner();
-    });
+    btnCloseScan.addEventListener("click", closeScanner);
   }
 
   if (btnSwitchToManual) {
@@ -510,7 +469,7 @@ document.addEventListener("DOMContentLoaded", () => {
     scanModal.classList.remove("active");
   }
 
-  // 12. ISBN 解析與自動填寫手動表單
+  // 13. ISBN 查詢與自動填入
   async function handleIsbnLookup(isbn) {
     try {
       const resp = await fetch("/api/isbn/lookup", {
@@ -527,10 +486,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const data = await resp.json();
-      const bookData = data.book;
-
       closeScanner();
-      openManualAddModal(bookData);
+      openManualAddModal(data.book);
     } catch (err) {
       alert(`查詢失敗：${err.message}`);
       closeScanner();
@@ -538,7 +495,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // 13. 手動新增 / ISBN 查詢 Modal 邏輯
+  // 14. 手動新增 Modal
   function openManualAddModal(presetData = null) {
     populateShelfDropdowns();
     tempLookupBookId = presetData?.id || null;
@@ -568,19 +525,11 @@ document.addEventListener("DOMContentLoaded", () => {
     manualAddModal.classList.remove("active");
   }
 
-  if (btnOpenManualAdd) {
-    btnOpenManualAdd.addEventListener("click", () => openManualAddModal());
-  }
+  if (btnOpenManualAdd) btnOpenManualAdd.addEventListener("click", () => openManualAddModal());
+  if (btnCloseManualAdd) btnCloseManualAdd.addEventListener("click", closeManualAddModal);
+  if (btnCancelManualAdd) btnCancelManualAdd.addEventListener("click", closeManualAddModal);
 
-  if (btnCloseManualAdd) {
-    btnCloseManualAdd.addEventListener("click", closeManualAddModal);
-  }
-
-  if (btnCancelManualAdd) {
-    btnCancelManualAdd.addEventListener("click", closeManualAddModal);
-  }
-
-  // 手動輸入 ISBN 快速查詢
+  // 手動輸入 ISBN 快速查詢 (三民站內優先)
   if (btnManualIsbnSearch) {
     btnManualIsbnSearch.addEventListener("click", async () => {
       const isbnVal = (manualIsbnInput.value || "").trim();
@@ -602,7 +551,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         if (!resp.ok) {
-          hintEl.textContent = `⚠️ 查無此 ISBN 之網路書目，已自動填入 ISBN 欄位，請直接在下方手動填寫書名與作者。`;
+          hintEl.textContent = `⚠️ 查無此 ISBN 之書目，已自動填入 ISBN 欄位，請直接在下方手動填寫書名與作者。`;
           document.getElementById("manual-isbn13").value = isbnVal;
           document.getElementById("manual-title").focus();
           return;
@@ -612,7 +561,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const b = data.book;
         tempLookupBookId = b.id || null;
 
-        // 帶入表單
         document.getElementById("manual-title").value = b.title || "";
         document.getElementById("manual-author").value = b.author_display || "";
         document.getElementById("manual-publisher").value = b.publisher || "";
@@ -622,7 +570,7 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("manual-category").value = b.category || "";
         document.getElementById("manual-desc").value = b.description || "";
 
-        hintEl.textContent = `✅ 成功取得書目《${b.title}》！請確認資料後點擊下方儲存。`;
+        hintEl.textContent = `✅ 成功取得書目《${b.title}》！封面已自動下載至伺服器。`;
       } catch (err) {
         hintEl.textContent = `⚠️ 查詢失敗：${err.message}`;
       } finally {
@@ -649,8 +597,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const category = document.getElementById("manual-category").value.trim();
       const desc = document.getElementById("manual-desc").value.trim();
       const shelfId = document.getElementById("manual-shelf").value;
-      const status = document.getElementById("manual-status").value;
-      const rating = document.getElementById("manual-rating").value;
       const notes = document.getElementById("manual-notes").value.trim();
 
       btnSubmitManualAdd.disabled = true;
@@ -659,7 +605,7 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         let bookId = tempLookupBookId;
 
-        // 若無 bookId 則先向後端建立全域書籍 Book
+        // 若無 bookId 則先向後端建立全域書籍 Book (後端會自動下載外部封面圖)
         if (!bookId) {
           const bookPayload = {
             title: title,
@@ -671,7 +617,8 @@ document.addEventListener("DOMContentLoaded", () => {
             cover_url: coverUrl || null,
             category: category || null,
             description: desc || null,
-            metadata_source: "Manual"
+            metadata_source: "Manual",
+            uuid: crypto.randomUUID ? crypto.randomUUID() : null
           };
 
           const createBookResp = await fetch("/api/books", {
@@ -693,9 +640,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const myBookPayload = {
           book_id: bookId,
           shelf_id: shelfId ? parseInt(shelfId, 10) : null,
-          status: status || "unread",
-          rating: rating ? parseInt(rating, 10) : null,
-          notes: notes || null
+          notes: notes || null,
+          uuid: crypto.randomUUID ? crypto.randomUUID() : null
         };
 
         const myBookResp = await fetch("/api/my-books", {
@@ -721,7 +667,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 14. 藏書詳細資訊與修改/刪除視窗（包含建立時間欄位展示）
+  // 15. 藏書詳細資訊與修改/刪除視窗（含替換封面圖片功能）
   function openBookDetailModal(item) {
     activeBook = item;
     const book = item.book || {};
@@ -736,8 +682,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const modalBody = document.getElementById("detail-modal-body");
     modalBody.innerHTML = `
       <div style="display: flex; gap: 1.25rem;">
-        <div style="width: 110px; height: 155px; background: var(--bg-input); border-radius: var(--radius-sm); overflow: hidden; flex-shrink: 0;">
-          ${book.cover_url ? `<img src="${book.cover_url}" style="width: 100%; height: 100%; object-fit: cover;">` : `<div style="display:flex;height:100%;align-items:center;justify-content:center;font-size:2.5rem;">📖</div>`}
+        <div style="width: 110px; height: 155px; background: var(--bg-input); border-radius: var(--radius-sm); overflow: hidden; flex-shrink: 0; position: relative;">
+          ${book.cover_url ? `
+            <img id="detail-cover-img" src="${book.cover_url}" style="width: 100%; height: 100%; object-fit: cover;">
+          ` : `
+            <div id="detail-cover-placeholder" style="display:flex;height:100%;align-items:center;justify-content:center;font-size:2.5rem;">📖</div>
+          `}
         </div>
         <div style="flex: 1; display: flex; flex-direction: column; gap: 0.25rem;">
           <h2 style="font-size: 1.15rem; font-weight: 700;">${book.title}</h2>
@@ -750,8 +700,23 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       </div>
 
+      <!-- 替換書封圖片功能 -->
+      <div class="form-group" style="margin-top: 0.75rem; background: var(--bg-input); padding: 0.75rem; border-radius: var(--radius-sm);">
+        <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">🖼️ 替換書封圖片</label>
+        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+          <input type="url" id="replace-cover-url" class="form-control" placeholder="輸入新的封面網址 (URL)..." style="font-size: 0.85rem;">
+          <button id="btn-save-cover-url" class="btn btn-secondary" style="white-space: nowrap; font-size: 0.8rem;">替換網址</button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <input type="file" id="replace-cover-file" accept="image/*" style="display: none;">
+          <button id="btn-trigger-cover-file" class="btn btn-secondary" style="font-size: 0.8rem; width: 100%;">
+            📁 上傳本機封面檔案
+          </button>
+        </div>
+      </div>
+
       ${book.description ? `
-        <div class="form-group" style="margin-top: 0.5rem;">
+        <div class="form-group">
           <label class="form-label">內容大意簡介</label>
           <div style="font-size: 0.85rem; color: var(--text-secondary); max-height: 100px; overflow-y: auto; background: var(--bg-input); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm);">
             ${book.description}
@@ -765,30 +730,8 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
 
       <div class="form-group">
-        <label class="form-label">閱讀狀態</label>
-        <select id="edit-status" class="form-control">
-          <option value="unread" ${item.status === 'unread' ? 'selected' : ''}>⏳ 未讀</option>
-          <option value="reading" ${item.status === 'reading' ? 'selected' : ''}>📖 閱讀中</option>
-          <option value="read" ${item.status === 'read' ? 'selected' : ''}>✅ 已讀</option>
-          <option value="abandoned" ${item.status === 'abandoned' ? 'selected' : ''}>❌ 棄讀</option>
-        </select>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">個人評分</label>
-        <select id="edit-rating" class="form-control">
-          <option value="">無評分</option>
-          <option value="5" ${item.rating === 5 ? 'selected' : ''}>★★★★★ (5 星)</option>
-          <option value="4" ${item.rating === 4 ? 'selected' : ''}>★★★★☆ (4 星)</option>
-          <option value="3" ${item.rating === 3 ? 'selected' : ''}>★★★☆☆ (3 星)</option>
-          <option value="2" ${item.rating === 2 ? 'selected' : ''}>★★☆☆☆ (2 星)</option>
-          <option value="1" ${item.rating === 1 ? 'selected' : ''}>★☆☆☆☆ (1 星)</option>
-        </select>
-      </div>
-
-      <div class="form-group">
         <label class="form-label">個人心得 / 備忘筆記</label>
-        <textarea id="edit-notes" class="form-control" rows="3" placeholder="記錄你的閱讀心得...">${item.notes || ''}</textarea>
+        <textarea id="edit-notes" class="form-control" rows="3" placeholder="記錄你的閱讀心得或備忘...">${item.notes || ''}</textarea>
       </div>
     `;
 
@@ -800,12 +743,65 @@ document.addEventListener("DOMContentLoaded", () => {
     `;
 
     document.getElementById("btn-cancel-edit").onclick = () => bookDetailModal.classList.remove("active");
-    
+
+    // 替換封面 - 網址
+    document.getElementById("btn-save-cover-url").onclick = async () => {
+      const newUrl = document.getElementById("replace-cover-url").value.trim();
+      if (!newUrl) {
+        alert("請輸入圖片網址！");
+        return;
+      }
+      try {
+        const resp = await fetch(`/api/books/${book.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cover_url: newUrl })
+        });
+        if (resp.ok) {
+          const updatedBook = await resp.json();
+          alert("✅ 封面替換成功！");
+          book.cover_url = updatedBook.cover_url;
+          openBookDetailModal(item);
+          loadBooksFromServer();
+        } else {
+          alert("替換失敗，請確認網址是否正確。");
+        }
+      } catch (err) {
+        alert("異常：" + err.message);
+      }
+    };
+
+    // 替換封面 - 上傳本機檔案
+    const fileInput = document.getElementById("replace-cover-file");
+    document.getElementById("btn-trigger-cover-file").onclick = () => fileInput.click();
+    fileInput.onchange = async () => {
+      if (!fileInput.files || fileInput.files.length === 0) return;
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const resp = await fetch(`/api/books/${book.id}/cover`, {
+          method: "POST",
+          body: formData
+        });
+        if (resp.ok) {
+          const updatedBook = await resp.json();
+          alert("✅ 封面圖檔上傳成功！");
+          book.cover_url = updatedBook.cover_url;
+          openBookDetailModal(item);
+          loadBooksFromServer();
+        } else {
+          alert("上傳失敗。");
+        }
+      } catch (err) {
+        alert("上傳異常：" + err.message);
+      }
+    };
+
     // 儲存修改
     document.getElementById("btn-save-edit").onclick = async () => {
       const shelfVal = document.getElementById("edit-shelf").value;
-      const statusVal = document.getElementById("edit-status").value;
-      const ratingVal = document.getElementById("edit-rating").value;
       const notesVal = document.getElementById("edit-notes").value;
 
       try {
@@ -814,8 +810,6 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             shelf_id: shelfVal ? parseInt(shelfVal, 10) : null,
-            status: statusVal,
-            rating: ratingVal ? parseInt(ratingVal, 10) : null,
             notes: notesVal
           })
         });
@@ -852,7 +846,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 15. 註冊 Service Worker
+  // 16. 註冊 Service Worker
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/static/sw.js").catch((err) => {
       console.warn("ServiceWorker 註冊失敗:", err);

@@ -1,12 +1,17 @@
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+
+def get_taipei_now():
+    return datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
 
 class Book(Base):
     __tablename__ = "books"
 
     id = Column(Integer().with_variant(BigInteger, "mysql", "mariadb"), primary_key=True, autoincrement=True, index=True)
+    uuid = Column(String(36), default=lambda: str(uuid.uuid4()), unique=True, index=True)
     isbn13 = Column(String(20), nullable=True, index=True)
     isbn10 = Column(String(20), nullable=True, index=True)
     ean = Column(String(30), nullable=True, index=True)
@@ -22,8 +27,8 @@ class Book(Base):
     category = Column(String(255), nullable=True)
     cover_url = Column(String(1000), nullable=True)
     metadata_source = Column(String(50), default="Manual")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_taipei_now)
+    updated_at = Column(DateTime, default=get_taipei_now, onupdate=get_taipei_now)
 
     # 關聯
     my_books = relationship("MyBook", back_populates="book", cascade="all, delete-orphan")
@@ -33,10 +38,11 @@ class Author(Base):
     __tablename__ = "authors"
 
     id = Column(Integer().with_variant(BigInteger, "mysql", "mariadb"), primary_key=True, autoincrement=True, index=True)
+    uuid = Column(String(36), default=lambda: str(uuid.uuid4()), unique=True, index=True)
     name = Column(String(255), nullable=False)
     normalized_name = Column(String(255), nullable=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_taipei_now)
+    updated_at = Column(DateTime, default=get_taipei_now, onupdate=get_taipei_now)
 
     book_authors = relationship("BookAuthor", back_populates="author", cascade="all, delete-orphan")
 

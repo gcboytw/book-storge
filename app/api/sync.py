@@ -1,16 +1,19 @@
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.models import MyBook, Shelf
 from app.services import CSVImporterService
 
+def get_taipei_now_iso():
+    return datetime.now(timezone(timedelta(hours=8))).isoformat()
+
 router = APIRouter(prefix="/api", tags=["Sync & Maintenance"])
 
 @router.get("/sync/dump")
 def dump_all_data(db: Session = Depends(get_db)):
     """
-    匯出所有藏書與書架資料，供手機端 IndexedDB 進行全量離線快取初始化
+    匯出所有藏書與書架資料 (含 UUID)，供手機端 IndexedDB 進行全量離線快取初始化
     """
     my_books = (
         db.query(MyBook)
@@ -25,7 +28,9 @@ def dump_all_data(db: Session = Depends(get_db)):
         b = mb.book
         items.append({
             "my_book_id": mb.id,
+            "uuid": mb.uuid,
             "book_id": mb.book_id,
+            "book_uuid": b.uuid if b else None,
             "title": b.title if b else "",
             "subtitle": b.subtitle if b else "",
             "author": b.author_display if b else "",
@@ -38,6 +43,7 @@ def dump_all_data(db: Session = Depends(get_db)):
             "description": b.description if b else "",
             "category": b.category if b else "",
             "shelf_id": mb.shelf_id,
+            "shelf_uuid": mb.shelf.uuid if mb.shelf else None,
             "shelf_name": mb.shelf.name if mb.shelf else "未分類",
             "status": mb.status,
             "rating": mb.rating,
@@ -46,15 +52,15 @@ def dump_all_data(db: Session = Depends(get_db)):
             "purchase_price": float(mb.purchase_price) if mb.purchase_price else None,
             "purchase_place": mb.purchase_place,
             "created_at": mb.created_at.isoformat() if mb.created_at else None,
-            "updated_at": mb.updated_at.isoformat() if mb.updated_at else datetime.utcnow().isoformat()
+            "updated_at": mb.updated_at.isoformat() if mb.updated_at else get_taipei_now_iso()
         })
 
     return {
-        "sync_version": int(datetime.utcnow().timestamp()),
-        "generated_at": datetime.utcnow().isoformat(),
+        "sync_version": int(datetime.now(timezone(timedelta(hours=8))).timestamp()),
+        "generated_at": get_taipei_now_iso(),
         "total_books": len(items),
         "shelves": [
-            {"id": s.id, "name": s.name, "sort_order": s.sort_order}
+            {"id": s.id, "uuid": s.uuid, "name": s.name, "sort_order": s.sort_order}
             for s in shelves
         ],
         "books": items

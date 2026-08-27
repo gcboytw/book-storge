@@ -47,7 +47,7 @@
       </div>
     </div>
 
-    <!-- Filter & Shelves Horizontal Tabs -->
+    <!-- Filter & Shelves Horizontal Tabs (僅保留所有書籍與所屬書架) -->
     <div id="filter-tabs" class="filter-tabs">
       <!-- Generated Dynamically -->
     </div>
@@ -98,13 +98,13 @@
         <div class="manual-isbn-search-card">
           <label class="form-label" style="font-weight:600;">🔍 手動輸入 ISBN 快速查詢書目</label>
           <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem;">
-            <input type="text" id="manual-isbn-input" class="form-control" placeholder="輸入 10 或 13 碼 ISBN，例：9789867848871" autocomplete="off">
+            <input type="text" id="manual-isbn-input" class="form-control" placeholder="輸入 10 或 13 碼 ISBN，例：9786267156841" autocomplete="off">
             <button id="btn-manual-isbn-search" class="btn btn-primary" style="white-space: nowrap;">
               查詢
             </button>
           </div>
           <p id="manual-isbn-hint" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem;">
-            將自動查詢三民書局、OpenLibrary、Google Books 等資料庫
+            優先查詢三民書局、OpenLibrary、Google Books 等資料庫
           </p>
         </div>
 
@@ -145,12 +145,7 @@
 
           <div class="form-group">
             <label class="form-label">封面圖片網址 (URL)</label>
-            <input type="url" id="manual-cover" class="form-control" placeholder="https://...">
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">分類標籤</label>
-            <input type="text" id="manual-category" class="form-control" placeholder="例：心理學、程式開發、文學">
+            <input type="url" id="manual-cover" class="form-control" placeholder="https://...（儲存時將自動下載備份至伺服器）">
           </div>
 
           <div class="form-row" style="display: flex; gap: 0.75rem;">
@@ -161,26 +156,9 @@
               </select>
             </div>
             <div class="form-group" style="flex: 1;">
-              <label class="form-label">閱讀狀態</label>
-              <select id="manual-status" class="form-control">
-                <option value="unread">⏳ 未讀</option>
-                <option value="reading">📖 閱讀中</option>
-                <option value="read">✅ 已讀</option>
-                <option value="abandoned">❌ 棄讀</option>
-              </select>
+              <label class="form-label">分類標籤</label>
+              <input type="text" id="manual-category" class="form-control" placeholder="例：心理學、文學">
             </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">個人評分</label>
-            <select id="manual-rating" class="form-control">
-              <option value="">無評分</option>
-              <option value="5">★★★★★ (5 星)</option>
-              <option value="4">★★★★☆ (4 星)</option>
-              <option value="3">★★★☆☆ (3 星)</option>
-              <option value="2">★★☆☆☆ (2 星)</option>
-              <option value="1">★☆☆☆☆ (1 星)</option>
-            </select>
           </div>
 
           <div class="form-group">
@@ -228,7 +206,7 @@
     </div>
   </div>
 
-  <!-- Book Detail / Edit / Add Modal -->
+  <!-- Book Detail / Edit Modal (含替換書封功能) -->
   <div id="book-detail-modal" class="modal-overlay">
     <div class="modal-card">
       <div class="modal-header">
@@ -244,7 +222,7 @@
     </div>
   </div>
 
-  <!-- Scroll To Top Floating Button (Visible when scrolled) -->
+  <!-- Scroll To Top Floating Button -->
   <button id="floating-back-to-top" class="floating-back-to-top" title="回到頁首">
     ⬆️
   </button>

@@ -1,4 +1,5 @@
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
@@ -6,17 +7,20 @@ from app.core.database import get_db
 from app.models import MyBook, Book, Shelf
 from app.schemas import MyBookCreate, MyBookUpdate, MyBookResponse, BookCreate
 
+def get_taipei_now():
+    return datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
+
 router = APIRouter(prefix="/api/my-books", tags=["MyBooks"])
 
 @router.get("", response_model=list[MyBookResponse])
 def list_my_books(
-    status: str | None = Query(None, description="篩選狀態: unread, reading, read, abandoned"),
+    status: str | None = Query(None, description="篩選狀態"),
     shelf_id: int | None = Query(None, description="篩選書架 ID"),
     q: str | None = Query(None, description="關鍵字搜尋 (書名、作者、ISBN、出版社)"),
     updated_after: datetime | None = Query(None, description="增量同步更新時間"),
     db: Session = Depends(get_db)
 ):
-    """取得個人藏書清單"""
+    """取得個人藏書清單 (依建立時間新->舊排序)"""
     query = (
         db.query(MyBook)
         .join(MyBook.book)
@@ -82,7 +86,11 @@ def add_to_my_books(payload: MyBookCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="這本書已經在你的藏書清單中囉！")
 
-    new_item = MyBook(**payload.model_dump())
+    data = payload.model_dump(exclude_unset=True)
+    if not data.get("uuid"):
+        data["uuid"] = str(uuid.uuid4())
+
+    new_item = MyBook(**data)
     db.add(new_item)
     db.commit()
     db.refresh(new_item)
@@ -96,7 +104,7 @@ def add_to_my_books(payload: MyBookCreate, db: Session = Depends(get_db)):
 
 @router.patch("/{my_book_id}", response_model=MyBookResponse)
 def update_my_book(my_book_id: int, payload: MyBookUpdate, db: Session = Depends(get_db)):
-    """更新藏書狀態、評分、心得、書架"""
+    """更新藏書心得、書架等資訊"""
     item = db.query(MyBook).filter(MyBook.id == my_book_id).first()
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="藏書紀錄不存在")
@@ -105,7 +113,7 @@ def update_my_book(my_book_id: int, payload: MyBookUpdate, db: Session = Depends
     for key, value in update_data.items():
         setattr(item, key, value)
 
-    item.updated_at = datetime.utcnow()
+    item.updated_at = get_taipei_now()
     db.commit()
     db.refresh(item)
 
@@ -118,7 +126,7 @@ def update_my_book(my_book_id: int, payload: MyBookUpdate, db: Session = Depends
 
 @router.delete("/{my_book_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_my_book(my_book_id: int, db: Session = Depends(get_db)):
-    """移出個人藏書（保留全域 books 資料）"""
+    """移出個人藏書"""
     item = db.query(MyBook).filter(MyBook.id == my_book_id).first()
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="藏書紀錄不存在")

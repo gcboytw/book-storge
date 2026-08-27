@@ -1,5 +1,8 @@
+import os
 import re
+import uuid
 import httpx
+from pathlib import Path
 from bs4 import BeautifulSoup
 from app.core.config import settings
 
@@ -10,9 +13,52 @@ class BookLookupService:
         return "".join(c for c in str(raw_isbn) if c.isdigit() or c.upper() == 'X')
 
     @classmethod
+    def download_and_save_cover(cls, image_url: str, isbn_or_key: str | None = None) -> str:
+        """
+        將遠端封面圖檔下載並儲存至本地 static/covers 目錄，回傳本地靜態路由路徑。
+        若下載失敗則回傳原始 image_url 作為降級。
+        """
+        if not image_url or not image_url.startswith("http"):
+            return image_url
+
+        try:
+            settings.COVERS_DIR.mkdir(parents=True, exist_ok=True)
+            
+            # 決定儲存檔名
+            safe_key = cls.clean_isbn(isbn_or_key) if isbn_or_key else ""
+            if not safe_key:
+                safe_key = str(uuid.uuid4())[:8]
+
+            # 抓取副檔名
+            ext = ".jpg"
+            if ".png" in image_url.lower():
+                ext = ".png"
+            elif ".webp" in image_url.lower():
+                ext = ".webp"
+
+            filename = f"{safe_key}{ext}"
+            file_path = settings.COVERS_DIR / filename
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Referer": "https://www.sanmin.com.tw/",
+            }
+
+            with httpx.Client(headers=headers, timeout=10.0, follow_redirects=True) as client:
+                resp = client.get(image_url)
+                if resp.status_code == 200 and len(resp.content) > 500:
+                    with open(file_path, "wb") as f:
+                        f.write(resp.content)
+                    return f"/static/covers/{filename}"
+        except Exception as e:
+            print(f"[CoverDownload] 下載封面失敗 ({image_url}): {e}")
+
+        return image_url
+
+    @classmethod
     def fetch_from_sanmin(cls, isbn: str) -> dict | None:
         """
-        第一順位：三民書局 (臺灣最完整繁中出版品資料庫)
+        第一順位：三民書局站內直接搜尋 (臺灣最完整繁中出版品資料庫)
         """
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -20,29 +66,41 @@ class BookLookupService:
             "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8",
         }
 
+        search_url = f"https://www.sanmin.com.tw/search?ct=K&qu={isbn}"
+
         try:
-            with httpx.Client(headers=headers, timeout=8.0, follow_redirects=True) as client:
-                search_endpoint = "https://html.duckduckgo.com/html/"
-                resp_index = client.post(search_endpoint, data={"q": isbn})
+            with httpx.Client(headers=headers, timeout=10.0, follow_redirects=True) as client:
+                resp_search = client.get(search_url)
+                if resp_search.status_code != 200:
+                    return None
+
+                soup_search = BeautifulSoup(resp_search.text, "html.parser")
                 
-                target_url = None
-                if resp_index.status_code == 200:
-                    soup_idx = BeautifulSoup(resp_index.text, "html.parser")
-                    for a in soup_idx.find_all("a", class_="result__url"):
-                        link_text = a.get_text(strip=True)
-                        if "sanmin.com.tw/product/index/" in link_text:
-                            target_url = link_text if link_text.startswith("http") else ("https://" + link_text)
-                            break
+                # 從主搜尋區塊尋找商品詳細連結
+                product_url = None
+                
+                # 優先在 .ProductView 中尋找商品連結
+                product_view = soup_search.find(class_=lambda c: c and "ProductView" in c)
+                search_container = product_view if product_view else soup_search
 
-                if not target_url:
+                for a in search_container.find_all("a", href=True):
+                    href = a["href"]
+                    if "/product/index/" in href:
+                        # 避開側邊推薦等非搜尋結果 (如在 ProductView 內即可確定為結果)
+                        product_url = href if href.startswith("http") else f"https://www.sanmin.com.tw{href}"
+                        break
+
+                if not product_url:
                     return None
 
-                resp = client.get(target_url)
-                if resp.status_code != 200 or "product/index" not in str(resp.url):
+                # 請求書籍詳細頁
+                resp_prod = client.get(product_url)
+                if resp_prod.status_code != 200:
                     return None
 
-                soup = BeautifulSoup(resp.text, "html.parser")
+                soup = BeautifulSoup(resp_prod.text, "html.parser")
 
+                # 書名
                 title = None
                 h1 = soup.find("h1")
                 if h1:
@@ -55,11 +113,16 @@ class BookLookupService:
                 if not title:
                     return None
 
-                cover_url = None
+                # 封面
+                remote_cover_url = None
                 og_image = soup.find("meta", property="og:image")
                 if og_image and og_image.get("content"):
-                    cover_url = og_image["content"]
+                    remote_cover_url = og_image["content"]
 
+                # 自動下載封面至本地伺服器
+                local_cover_url = cls.download_and_save_cover(remote_cover_url, isbn) if remote_cover_url else None
+
+                # 出版資訊
                 author = None
                 publisher = None
                 publication_date = None
@@ -79,6 +142,12 @@ class BookLookupService:
                         if len(parts) > 1:
                             publication_date = parts[1].strip()
 
+                # 內容簡介
+                description = None
+                intro_div = soup.find("div", class_=lambda c: c and "intro" in str(c).lower()) or soup.find("div", id=lambda i: i and "intro" in str(i).lower())
+                if intro_div:
+                    description = intro_div.get_text(strip=True)
+
                 return {
                     "isbn13": isbn if len(isbn) == 13 else None,
                     "isbn10": isbn if len(isbn) == 10 else None,
@@ -86,10 +155,12 @@ class BookLookupService:
                     "author_display": author,
                     "publisher": publisher,
                     "publication_date": publication_date,
-                    "cover_url": cover_url,
+                    "cover_url": local_cover_url,
+                    "description": description,
                     "metadata_source": "Sanmin_TW"
                 }
-        except Exception:
+        except Exception as e:
+            print(f"[SanminLookup] 查詢異常: {e}")
             return None
 
     @classmethod
@@ -114,7 +185,8 @@ class BookLookupService:
                         
                         cover_url = None
                         if "cover" in item:
-                            cover_url = item["cover"].get("large") or item["cover"].get("medium")
+                            raw_cover = item["cover"].get("large") or item["cover"].get("medium")
+                            cover_url = cls.download_and_save_cover(raw_cover, isbn) if raw_cover else None
 
                         authors = [a["name"] for a in item.get("authors", []) if "name" in a]
                         publishers = [p["name"] for p in item.get("publishers", []) if "name" in p]
@@ -155,6 +227,9 @@ class BookLookupService:
                     data = resp.json()
                     if data.get("totalItems", 0) > 0 and "items" in data:
                         vol = data["items"][0].get("volumeInfo", {})
+                        raw_cover = vol.get("imageLinks", {}).get("thumbnail")
+                        cover_url = cls.download_and_save_cover(raw_cover, isbn) if raw_cover else None
+
                         return {
                             "isbn13": isbn if len(isbn) == 13 else None,
                             "isbn10": isbn if len(isbn) == 10 else None,
@@ -162,7 +237,7 @@ class BookLookupService:
                             "author_display": ", ".join(vol.get("authors", [])) if vol.get("authors") else None,
                             "publisher": vol.get("publisher"),
                             "publication_date": vol.get("publishedDate"),
-                            "cover_url": vol.get("imageLinks", {}).get("thumbnail"),
+                            "cover_url": cover_url,
                             "description": vol.get("description"),
                             "metadata_source": "GoogleBooks_API"
                         }
@@ -173,13 +248,13 @@ class BookLookupService:
     @classmethod
     def lookup(cls, isbn_raw: str) -> dict | None:
         """
-        多層降級查詢：三民書局 -> OpenLibrary -> Google Books
+        多層降級查詢：三民書局(站內搜尋) -> OpenLibrary -> Google Books
         """
         isbn = cls.clean_isbn(isbn_raw)
         if not isbn:
             return None
 
-        # 1. 優先查 三民書局
+        # 1. 優先直接查 三民書局站內搜尋
         res = cls.fetch_from_sanmin(isbn)
         if res:
             return res

@@ -6,6 +6,7 @@ class ShelfBase(BaseModel):
     description: str | None = None
     sort_order: int = 0
     is_archived: bool = False
+    uuid: str | None = None
 
 class ShelfCreate(ShelfBase):
     pass
@@ -18,6 +19,7 @@ class ShelfUpdate(BaseModel):
 
 class ShelfResponse(ShelfBase):
     id: int
+    uuid: str | None = None
     book_count: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
