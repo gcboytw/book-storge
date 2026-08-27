@@ -1,0 +1,30 @@
+wing: book_storge
+rooms:
+- name: app
+  description: Files from app/
+  keywords:
+  - app
+  - app
+- name: scripts
+  description: Files from scripts/
+  keywords:
+  - scripts
+  - scripts
+- name: documentation
+  description: Files from doc/
+  keywords:
+  - documentation
+  - doc
+- name: material
+  description: Files from material/
+  keywords:
+  - material
+  - material
+- name: backend
+  description: Files from models/
+  keywords:
+  - backend
+  - models
+- name: general
+  description: Files that don't fit other rooms
+  keywords: []
