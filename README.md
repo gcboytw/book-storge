@@ -99,6 +99,7 @@ cp .env.example .env
 ```
 
 `.env` 預設內容：
+
 ```ini
 DB_TYPE=sqlite
 SQLITE_DB_PATH=./local_dev.db
@@ -120,6 +121,7 @@ uv run uvicorn app.main:app --reload --port 8000
 ```
 
 啟動後即可在瀏覽器打開：
+
 - 📱 **Web App 首頁**：[http://localhost:8000](http://localhost:8000)
 - 📑 **Swagger API 文件**：[http://localhost:8000/docs](http://localhost:8000/docs)
 - 🩺 **健康檢查**：[http://localhost:8000/health](http://localhost:8000/health)
@@ -130,11 +132,15 @@ uv run uvicorn app.main:app --reload --port 8000
 
 1. **同 Wi-Fi 手機連線**：
    啟動伺服器時改用 `--host 0.0.0.0`：
+   
    ```bash
    uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
    ```
+
 2. 手機 Safari 打開 `http://<你的Mac或NAS的IP>:8000`。
+
 3. 點擊瀏覽器下方的「**分享按鈕 ➔ 加入主畫面**」。
+
 4. 之後出門無網路時，點擊主畫面圖示打開 App，即可在 IndexedDB 本地離線庫秒查所有藏書！
 
 ---
@@ -144,6 +150,7 @@ uv run uvicorn app.main:app --reload --port 8000
 在家中 NAS 部署時，只需簡單兩步：
 
 ### 1. 修改 `.env` 連線 MariaDB 10
+
 ```ini
 DB_TYPE=mariadb
 DB_HOST=192.168.1.100       # NAS 的區網 IP
@@ -154,6 +161,7 @@ DB_NAME=book_storage
 ```
 
 ### 2. 在 NAS 上啟動容器
+
 將專案檔案放置於 NAS（例如 `/volume1/docker/book-storage`），在 Synology **Container Manager** 中建立專案，或透過 SSH 執行：
 
 ```bash
@@ -164,10 +172,10 @@ docker-compose up -d --build
 
 ## 🛠️ 常用指令速查
 
-| 操作 | 指令 |
-| :--- | :--- |
-| **安裝 / 同步套件** | `uv sync` |
-| **新增 Python 套件** | `uv add <package_name>` |
-| **啟動熱重載伺服器** | `uv run uvicorn app.main:app --reload --port 8000` |
-| **匯入既有 CSV 書目** | `uv run scripts/import_legacy_csv.py` |
-| **測試單一 ISBN 爬取** | `uv run python fetch_books_tw.py 9789867848871` |
+| 操作               | 指令                                                 |
+|:---------------- |:-------------------------------------------------- |
+| **安裝 / 同步套件**    | `uv sync`                                          |
+| **新增 Python 套件** | `uv add <package_name>`                            |
+| **啟動熱重載伺服器**     | `uv run uvicorn app.main:app --reload --port 8000` |
+| **匯入既有 CSV 書目**  | `uv run scripts/import_legacy_csv.py`              |
+| **測試單一 ISBN 爬取** | `uv run python fetch_books_tw.py 9789867848871`    |

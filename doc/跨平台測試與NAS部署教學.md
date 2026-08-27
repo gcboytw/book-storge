@@ -92,8 +92,21 @@ APP_PORT=8000
 HOST=0.0.0.0
 ```
 
-#### 步驟 4：啟動 Docker 容器
-在專案目錄下透過 SSH 執行（或在 Synology **Container Manager** 中建立專案）：
+#### 步驟 4：啟動 Docker 容器（提供兩種方式）
+
+##### 方式 A：使用 Synology Container Manager（DSM 7.2+ 圖形介面，推薦）
+如果您偏好透過 DSM 的圖形化介面（GUI）部署，免用 SSH 指令：
+1. 開啟 **Container Manager** 套件。
+2. 點選左側選單的 **「專案」 (Project)** ➔ 點擊右上角 **「新增」 (Create)**。
+3. 填寫專案設定：
+   - **專案名稱**：`book-storage`
+   - **路徑**：選擇剛才上傳檔案的目錄（例如 `/docker/book-storage`）。
+   - **來源**：選擇 **「使用現有的 docker-compose.yml 建立專案」**。
+4. 點選「下一步」，Container Manager 會自動讀取 `docker-compose.yml` 內容。
+5. 勾選 **「建立專案後點擊套用並啟動專案」**，點擊 **「套用」**。系統會自動根據 `Dockerfile` 完成 Image 建置並啟動服務。
+
+##### 方式 B：透過 SSH 指令列啟動
+在專案目錄下透過 SSH 執行：
 ```bash
 docker-compose up -d --build
 ```
