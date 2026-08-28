@@ -15,8 +15,9 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/style.css?v=3">
 </head>
+
 <body>
 
   <!-- App Header -->
@@ -27,6 +28,7 @@
         <span>藏書庫</span>
       </div>
       <div class="header-actions">
+        <button id="btn-export-zip" class="btn-icon" title="匯出藏書 CSV 與封面圖片 (ZIP)">📥</button>
         <button id="theme-toggle" class="btn-icon" title="切換深淺色主題">🌙</button>
       </div>
     </div>
@@ -45,9 +47,17 @@
         <span class="search-icon">🔍</span>
         <input type="text" id="search-input" class="search-input" placeholder="搜尋書名、作者、ISBN、出版社..." autocomplete="off">
       </div>
+      <!-- Mobile Shelf Trigger Button (Visible on mobile screens <= 768px) -->
+      <button id="btn-mobile-shelf-trigger" class="btn-mobile-shelf-trigger" title="選擇書架分類">
+        <div class="shelf-btn-left">
+          <span class="shelf-btn-icon">📁</span>
+          <span id="mobile-shelf-label" class="shelf-btn-label">全部書籍</span>
+        </div>
+        <span class="shelf-btn-arrow">▾</span>
+      </button>
     </div>
 
-    <!-- Filter & Shelves Horizontal Tabs (僅保留所有書籍與所屬書架) -->
+    <!-- Filter & Shelves Horizontal Tabs (僅在電腦/平板寬螢幕呈現) -->
     <div id="filter-tabs" class="filter-tabs">
       <!-- Generated Dynamically -->
     </div>
@@ -222,14 +232,30 @@
     </div>
   </div>
 
+  <!-- Mobile Shelf Bottom Sheet Modal -->
+  <div id="shelf-bottom-sheet" class="modal-overlay bottom-sheet-overlay">
+    <div class="bottom-sheet-card">
+      <div class="bottom-sheet-header">
+        <div class="bottom-sheet-handle"></div>
+        <div class="bottom-sheet-title-row">
+          <h3 class="modal-title">📁 選擇所屬書架</h3>
+          <button id="btn-close-shelf-sheet" class="btn-icon">✕</button>
+        </div>
+      </div>
+      <div id="shelf-sheet-list" class="bottom-sheet-list">
+        <!-- Generated Dynamically -->
+      </div>
+    </div>
+  </div>
+
   <!-- Scroll To Top Floating Button -->
   <button id="floating-back-to-top" class="floating-back-to-top" title="回到頁首">
     ⬆️
   </button>
 
   <!-- JavaScript Modules -->
-  <script src="/static/js/db_offline.js"></script>
-  <script src="/static/js/scanner.js"></script>
-  <script src="/static/js/app.js"></script>
+  <script src="/static/js/db_offline.js?v=3"></script>
+  <script src="/static/js/scanner.js?v=3"></script>
+  <script src="/static/js/app.js?v=3"></script>
 </body>
 </html>

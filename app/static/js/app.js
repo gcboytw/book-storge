@@ -10,14 +10,20 @@ document.addEventListener("DOMContentLoaded", () => {
   const totalCountEl = document.getElementById("total-count");
   const offlineBanner = document.getElementById("offline-banner");
   const themeToggleBtn = document.getElementById("theme-toggle");
+  const btnExportZip = document.getElementById("btn-export-zip");
   const paginationContainer = document.getElementById("pagination-container");
   const btnBackToTop = document.getElementById("btn-back-to-top");
   const floatingBackToTop = document.getElementById("floating-back-to-top");
 
-  // Modals
+  // Modals & Bottom Sheet
   const scanModal = document.getElementById("scan-modal");
   const bookDetailModal = document.getElementById("book-detail-modal");
   const manualAddModal = document.getElementById("manual-add-modal");
+  const shelfBottomSheet = document.getElementById("shelf-bottom-sheet");
+  const shelfSheetList = document.getElementById("shelf-sheet-list");
+  const btnMobileShelfTrigger = document.getElementById("btn-mobile-shelf-trigger");
+  const mobileShelfLabel = document.getElementById("mobile-shelf-label");
+  const btnCloseShelfSheet = document.getElementById("btn-close-shelf-sheet");
   const btnOpenScan = document.getElementById("btn-open-scan");
   const btnCloseScan = document.getElementById("btn-close-scan");
   const btnCloseDetail = document.getElementById("btn-close-detail");
@@ -143,6 +149,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (booksResp.ok) {
         const data = await booksResp.json();
         cachedBooks = sortBooksByCreatedAtDesc(data);
+        renderFilterTabs(); // 藏書載入後即時更新書架數量
         applyFiltersAndRender();
       }
     } catch (err) {
@@ -157,7 +164,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const meta = await window.offlineStorage.getSyncMeta();
     if (meta && meta.shelves) {
       shelvesList = meta.shelves;
-      renderFilterTabs();
       populateShelfDropdowns();
     }
     
@@ -195,29 +201,126 @@ document.addEventListener("DOMContentLoaded", () => {
     }));
 
     cachedBooks = sortBooksByCreatedAtDesc(formatted);
+    renderFilterTabs(); // 離線資料載入後即時更新書架數量
     applyFiltersAndRender();
   }
 
-  // 6. 書架與分類標籤渲染 (僅保留「全部書籍」與「所屬書架」)
+  // 6. 書架與分類標籤渲染 (桌面橫向膠囊 + 手機底部抽屜選單)
   function renderFilterTabs() {
-    let html = `
-      <button class="filter-chip ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">全部書籍</button>
+    // 1. 計算各書架書籍數量
+    const totalAllCount = cachedBooks.length;
+    const shelfCounts = {};
+    for (const b of cachedBooks) {
+      const sId = b.shelf_id || (b.shelf ? b.shelf.id : null);
+      if (sId) {
+        shelfCounts[sId] = (shelfCounts[sId] || 0) + 1;
+      }
+    }
+
+    // 2. 決定目前選中的書架標題名稱
+    let currentTitle = "全部書籍";
+    if (currentFilter.startsWith("shelf:")) {
+      const sId = parseInt(currentFilter.replace("shelf:", ""), 10);
+      const found = shelvesList.find((s) => s.id === sId);
+      if (found) currentTitle = found.name;
+    }
+    if (mobileShelfLabel) {
+      mobileShelfLabel.textContent = currentTitle;
+    }
+
+    // 3. 渲染桌面版橫向膠囊 (Desktop / Tablet)
+    let desktopHtml = `
+      <button class="filter-chip ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">
+        全部書籍 (${totalAllCount})
+      </button>
     `;
 
     for (const shelf of shelvesList) {
       const active = currentFilter === `shelf:${shelf.id}` ? "active" : "";
-      html += `<button class="filter-chip ${active}" data-filter="shelf:${shelf.id}">📁 ${shelf.name}</button>`;
+      const count = shelfCounts[shelf.id] || 0;
+      desktopHtml += `
+        <button class="filter-chip ${active}" data-filter="shelf:${shelf.id}">
+          📁 ${shelf.name} (${count})
+        </button>
+      `;
     }
-
-    filterTabs.innerHTML = html;
+    filterTabs.innerHTML = desktopHtml;
 
     filterTabs.querySelectorAll(".filter-chip").forEach((btn) => {
       btn.addEventListener("click", () => {
         currentFilter = btn.dataset.filter;
-        currentPage = 1; // 切換分類時重設至第一頁
+        currentPage = 1;
         renderFilterTabs();
         applyFiltersAndRender();
       });
+    });
+
+    // 4. 渲染手機版底部抽屜清單 (Mobile Bottom Sheet)
+    if (shelfSheetList) {
+      let sheetHtml = `
+        <button class="sheet-shelf-item ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">
+          <div class="sheet-shelf-left">
+            <span>📚</span>
+            <span>全部書籍</span>
+          </div>
+          <div class="sheet-shelf-right">
+            <span class="shelf-count-badge">${totalAllCount} 本</span>
+            <span class="shelf-check-icon">✓</span>
+          </div>
+        </button>
+      `;
+
+      for (const shelf of shelvesList) {
+        const active = currentFilter === `shelf:${shelf.id}` ? "active" : "";
+        const count = shelfCounts[shelf.id] || 0;
+        sheetHtml += `
+          <button class="sheet-shelf-item ${active}" data-filter="shelf:${shelf.id}">
+            <div class="sheet-shelf-left">
+              <span>📁</span>
+              <span>${shelf.name}</span>
+            </div>
+            <div class="sheet-shelf-right">
+              <span class="shelf-count-badge">${count} 本</span>
+              <span class="shelf-check-icon">✓</span>
+            </div>
+          </button>
+        `;
+      }
+
+      shelfSheetList.innerHTML = sheetHtml;
+
+      shelfSheetList.querySelectorAll(".sheet-shelf-item").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          currentFilter = btn.dataset.filter;
+          currentPage = 1;
+          if (shelfBottomSheet) {
+            shelfBottomSheet.classList.remove("active");
+          }
+          renderFilterTabs();
+          applyFiltersAndRender();
+        });
+      });
+    }
+  }
+
+  // 綁定手機書架抽屜開啟與關閉事件
+  if (btnMobileShelfTrigger && shelfBottomSheet) {
+    btnMobileShelfTrigger.addEventListener("click", () => {
+      shelfBottomSheet.classList.add("active");
+    });
+  }
+
+  if (btnCloseShelfSheet && shelfBottomSheet) {
+    btnCloseShelfSheet.addEventListener("click", () => {
+      shelfBottomSheet.classList.remove("active");
+    });
+  }
+
+  if (shelfBottomSheet) {
+    shelfBottomSheet.addEventListener("click", (e) => {
+      if (e.target === shelfBottomSheet) {
+        shelfBottomSheet.classList.remove("active");
+      }
     });
   }
 
@@ -850,6 +953,53 @@ document.addEventListener("DOMContentLoaded", () => {
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/static/sw.js").catch((err) => {
       console.warn("ServiceWorker 註冊失敗:", err);
+    });
+  }
+
+  // 17. 匯出藏書 CSV + 書封 ZIP 打包
+  if (btnExportZip) {
+    btnExportZip.addEventListener("click", async () => {
+      if (!navigator.onLine) {
+        alert("離線狀態下無法使用伺服器打包匯出功能，請連線後再試。");
+        return;
+      }
+
+      const originalText = btnExportZip.textContent;
+      btnExportZip.disabled = true;
+      btnExportZip.textContent = "⏳";
+      btnExportZip.title = "正在打包藏書資料與書封圖片...";
+
+      try {
+        const resp = await fetch("/api/export/zip");
+        if (!resp.ok) {
+          throw new Error(`伺服器錯誤 (${resp.status})`);
+        }
+
+        const blob = await resp.blob();
+        const url = window.URL.createObjectURL(blob);
+
+        let filename = "book_storage_backup.zip";
+        const disposition = resp.headers.get("Content-Disposition");
+        if (disposition && disposition.includes("filename=")) {
+          const match = disposition.match(/filename="?([^"]+)"?/);
+          if (match && match[1]) filename = match[1];
+        }
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } catch (err) {
+        console.error("匯出失敗:", err);
+        alert("匯出失敗：" + err.message);
+      } finally {
+        btnExportZip.disabled = false;
+        btnExportZip.textContent = originalText;
+        btnExportZip.title = "匯出藏書 CSV 與封面圖片 (ZIP)";
+      }
     });
   }
 
