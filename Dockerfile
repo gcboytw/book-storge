@@ -19,6 +19,7 @@ RUN uv sync --frozen --no-cache || uv sync --no-cache
 COPY app ./app
 COPY material ./material
 COPY scripts ./scripts
+COPY fetch_books_tw.py ./
 
 # 建立圖檔存放目錄
 RUN mkdir -p /app/app/static/covers
