@@ -13,3 +13,7 @@ wheels/
 .env
 .DS_Store
 *.db
+
+# Local files
+xx/
+data/
