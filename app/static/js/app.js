@@ -37,7 +37,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const customBookForm = document.getElementById("custom-book-form");
 
   // 狀態管理
-  const PAGE_SIZE = 50; // 每頁 50 本書籍
+  const PAGE_SIZE = 24; // 每頁 24 本書籍
   let currentPage = 1;
   let currentFilter = "all"; // 'all' 或 shelf:ID
   let currentSearch = "";
