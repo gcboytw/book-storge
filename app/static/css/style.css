@@ -204,39 +204,66 @@ body {
   font-size: 0.95rem;
 }
 
-/* Shelf & Status Chips (Horizontal Scrollable) */
+/* Shelf & Filter Horizontal Scrollable Tabs */
 .filter-tabs {
   display: flex;
   gap: 0.5rem;
   overflow-x: auto;
-  padding-bottom: 0.5rem;
+  padding: 0.25rem 0.25rem 0.65rem 0.25rem;
+  margin-bottom: 0.5rem;
   scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .filter-tabs::-webkit-scrollbar {
   display: none;
 }
 
-.filter-chip {
-  padding: 0.4rem 0.85rem;
+.filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 1rem;
   border-radius: 20px;
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
   transition: all 0.2s ease;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
+  user-select: none;
 }
 
-.filter-chip:hover {
+.filter-tab:hover {
   background: var(--bg-input);
+  color: var(--text-primary);
+  border-color: var(--text-muted);
 }
 
-.filter-chip.active {
+.filter-tab.active {
   background: var(--primary);
   border-color: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
+  font-weight: 600;
+}
+
+.shelf-count-badge {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.filter-tab.active .shelf-count-badge {
+  background: rgba(255, 255, 255, 0.25);
   color: #ffffff;
 }
 
@@ -741,213 +768,6 @@ body {
   padding: 1rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
-}
-
-/* Mobile Shelf Trigger Button & Bottom Sheet */
-.btn-mobile-shelf-trigger {
-  display: none; /* 預設在桌機/寬螢幕完全隱藏 */
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: var(--shadow-sm);
-  transition: all 0.2s ease;
-  user-select: none;
-}
-
-.btn-mobile-shelf-trigger:hover, .btn-mobile-shelf-trigger:active {
-  background: var(--bg-input);
-  border-color: var(--primary);
-}
-
-.shelf-btn-left {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  overflow: hidden;
-}
-
-.shelf-btn-icon {
-  font-size: 1.1rem;
-  flex-shrink: 0;
-}
-
-.shelf-btn-label {
-  font-size: 0.95rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.shelf-btn-arrow {
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  flex-shrink: 0;
-}
-
-/* Bottom Sheet Overlay & Card */
-.bottom-sheet-overlay {
-  align-items: flex-end !important;
-  padding: 0 !important;
-}
-
-.bottom-sheet-card {
-  width: 100%;
-  max-width: 600px;
-  margin: 0 auto;
-  background: var(--bg-surface);
-  border-radius: 20px 20px 0 0;
-  box-shadow: var(--shadow-lg);
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  animation: slideUpSheet 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  overflow: hidden;
-  border-top: 1px solid var(--border-color);
-}
-
-@keyframes slideUpSheet {
-  from {
-    transform: translateY(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-.bottom-sheet-header {
-  padding: 0.5rem 1.25rem 0.75rem;
-  border-bottom: 1px solid var(--border-color);
-  flex-shrink: 0;
-}
-
-.bottom-sheet-handle {
-  width: 40px;
-  height: 5px;
-  background: var(--border-color);
-  border-radius: 3px;
-  margin: 0.25rem auto 0.75rem;
-}
-
-.bottom-sheet-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.bottom-sheet-list {
-  padding: 0.5rem;
-  overflow-y: auto;
-  max-height: calc(80vh - 80px);
-  -webkit-overflow-scrolling: touch;
-}
-
-.sheet-shelf-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 0.85rem 1rem;
-  border-radius: var(--radius-md);
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 0.95rem;
-  font-weight: 500;
-  text-align: left;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.sheet-shelf-item:hover, .sheet-shelf-item:active {
-  background: var(--bg-input);
-}
-
-.sheet-shelf-item.active {
-  background: var(--primary-light);
-  color: var(--primary);
-  font-weight: 700;
-}
-
-.sheet-shelf-left {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-}
-
-.sheet-shelf-right {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.shelf-count-badge {
-  font-size: 0.75rem;
-  padding: 0.2rem 0.5rem;
-  border-radius: 12px;
-  background: var(--bg-input);
-  color: var(--text-muted);
-}
-
-.sheet-shelf-item.active .shelf-count-badge {
-  background: var(--primary);
-  color: #ffffff;
-}
-
-.shelf-check-icon {
-  font-size: 0.95rem;
-  color: var(--primary);
-  visibility: hidden;
-}
-
-.sheet-shelf-item.active .shelf-check-icon {
-  visibility: visible;
-}
-
-/* RWD Media Queries：精確切換手機與桌機模式 */
-@media (max-width: 768px) {
-  /* 手機模式：隱藏橫排標籤，改為滿版搜尋框 + 滿版書架按鈕 */
-  .filter-tabs {
-    display: none !important;
-  }
-  
-  .btn-mobile-shelf-trigger {
-    display: flex !important;
-    width: 100% !important;
-    justify-content: space-between !important;
-  }
-  
-  .controls-bar {
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: stretch !important;
-    gap: 0.65rem !important;
-    margin-bottom: 1rem !important;
-  }
-  
-  .search-box {
-    width: 100% !important;
-    max-width: none !important;
-  }
-}
-
-@media (min-width: 769px) {
-  /* 桌機模式：強制隱藏手機觸發按鈕，維持橫排膠囊 */
-  .btn-mobile-shelf-trigger {
-    display: none !important;
-  }
-  
-  .filter-tabs {
-    display: flex !important;
-  }
 }
 
 

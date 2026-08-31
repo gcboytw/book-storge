@@ -15,15 +15,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnBackToTop = document.getElementById("btn-back-to-top");
   const floatingBackToTop = document.getElementById("floating-back-to-top");
 
-  // Modals & Bottom Sheet
+  // Modals
   const scanModal = document.getElementById("scan-modal");
   const bookDetailModal = document.getElementById("book-detail-modal");
   const manualAddModal = document.getElementById("manual-add-modal");
-  const shelfBottomSheet = document.getElementById("shelf-bottom-sheet");
-  const shelfSheetList = document.getElementById("shelf-sheet-list");
-  const btnMobileShelfTrigger = document.getElementById("btn-mobile-shelf-trigger");
-  const mobileShelfLabel = document.getElementById("mobile-shelf-label");
-  const btnCloseShelfSheet = document.getElementById("btn-close-shelf-sheet");
   const btnOpenScan = document.getElementById("btn-open-scan");
   const btnCloseScan = document.getElementById("btn-close-scan");
   const btnCloseDetail = document.getElementById("btn-close-detail");
@@ -121,7 +116,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 5. 載入資料 (優先線上，離線則由 IndexedDB 備援)
+  // 5. 載入資料 (優先線上立即渲染，離線由 IndexedDB 備援)
   async function loadBooksFromServer() {
     if (!navigator.onLine) {
       return loadOfflineData();
@@ -136,20 +131,27 @@ document.addEventListener("DOMContentLoaded", () => {
         populateShelfDropdowns();
       }
 
-      // 2. 取得全量同步 Dump 並快取至 IndexedDB
-      const dumpResp = await fetch("/api/sync/dump");
-      if (dumpResp.ok) {
-        const dump = await dumpResp.json();
-        await window.offlineStorage.syncFromServer(dump);
-      }
-
-      // 3. 取得藏書列表
+      // 2. 取得藏書列表並立即渲染畫面
       const booksResp = await fetch("/api/books");
       if (booksResp.ok) {
         const data = await booksResp.json();
         cachedBooks = sortBooksByCreatedAtDesc(data);
         renderFilterTabs();
         applyFiltersAndRender();
+        offlineBanner.classList.remove("active");
+      }
+
+      // 3. 背景將全量資料快取至 IndexedDB (不阻塞畫面)
+      try {
+        const dumpResp = await fetch("/api/sync/dump");
+        if (dumpResp.ok) {
+          const dump = await dumpResp.json();
+          if (window.offlineStorage) {
+            await window.offlineStorage.syncFromServer(dump);
+          }
+        }
+      } catch (cacheErr) {
+        console.warn("背景 IndexedDB 快取寫入提示:", cacheErr);
       }
     } catch (err) {
       console.warn("無法連線至中央伺服器，切換為離線資料庫:", err);
@@ -158,7 +160,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function loadOfflineData() {
-    offlineBanner.classList.add("active");
+    if (!navigator.onLine) {
+      offlineBanner.classList.add("active");
+      offlineBanner.textContent = "⚡ 目前處於離線狀態：使用本地 IndexedDB 秒查個人藏書";
+    }
     const offlineBooks = await window.offlineStorage.getAllBooks();
     const meta = await window.offlineStorage.getSyncMeta();
     if (meta && meta.shelves) {
@@ -193,9 +198,8 @@ document.addEventListener("DOMContentLoaded", () => {
     applyFiltersAndRender();
   }
 
-  // 6. 書架與分類標籤渲染 (桌面橫向膠囊 + 手機底部抽屜選單)
+  // 6. 書架與分類標籤渲染 (橫向滑動膠囊標籤列)
   function renderFilterTabs() {
-    // 1. 計算各書架書籍數量
     const totalAllCount = cachedBooks.length;
     const shelfCounts = {};
     for (const b of cachedBooks) {
@@ -205,23 +209,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    // 2. 決定目前選中的書架標題名稱
-    let currentLabelText = "所有書籍";
-    if (currentFilter.startsWith("shelf:")) {
-      const currentShelfId = parseInt(currentFilter.replace("shelf:", ""), 10);
-      const currentShelf = shelvesList.find((s) => s.id === currentShelfId);
-      if (currentShelf) {
-        currentLabelText = `${currentShelf.name} (${shelfCounts[currentShelf.id] || 0})`;
-      }
-    } else {
-      currentLabelText = `所有書籍 (${totalAllCount})`;
-    }
-    if (mobileShelfLabel) {
-      mobileShelfLabel.textContent = currentLabelText;
-    }
-
-    // 3. 渲染桌面版篩選標籤膠囊 (Pills)
-    let desktopHtml = `
+    let tabsHtml = `
       <button class="filter-tab ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">
         所有書籍 <span class="shelf-count-badge">${totalAllCount}</span>
       </button>
@@ -230,50 +218,16 @@ document.addEventListener("DOMContentLoaded", () => {
     for (const s of shelvesList) {
       const count = shelfCounts[s.id] || 0;
       const isActive = currentFilter === `shelf:${s.id}`;
-      desktopHtml += `
+      tabsHtml += `
         <button class="filter-tab ${isActive ? 'active' : ''}" data-filter="shelf:${s.id}">
           ${s.name} <span class="shelf-count-badge">${count}</span>
         </button>
       `;
     }
 
-    filterTabs.innerHTML = desktopHtml;
+    filterTabs.innerHTML = tabsHtml;
 
-    // 4. 渲染手機版 Bottom Sheet 列表
-    if (shelfSheetList) {
-      let sheetHtml = `
-        <div class="shelf-sheet-item ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">
-          <span class="shelf-sheet-name">📚 所有書籍</span>
-          <span class="shelf-sheet-count">${totalAllCount} 本</span>
-        </div>
-      `;
-
-      for (const s of shelvesList) {
-        const count = shelfCounts[s.id] || 0;
-        const isActive = currentFilter === `shelf:${s.id}`;
-        sheetHtml += `
-          <div class="shelf-sheet-item ${isActive ? 'active' : ''}" data-filter="shelf:${s.id}">
-            <span class="shelf-sheet-name">🏷️ ${s.name}</span>
-            <span class="shelf-sheet-count">${count} 本</span>
-          </div>
-        `;
-      }
-
-      shelfSheetList.innerHTML = sheetHtml;
-
-      // 綁定手機抽屜項目點擊事件
-      shelfSheetList.querySelectorAll(".shelf-sheet-item").forEach((item) => {
-        item.addEventListener("click", () => {
-          currentFilter = item.dataset.filter;
-          currentPage = 1;
-          closeShelfBottomSheet();
-          renderFilterTabs();
-          applyFiltersAndRender();
-        });
-      });
-    }
-
-    // 綁定桌面標籤點擊事件
+    // 綁定標籤點擊事件
     filterTabs.querySelectorAll(".filter-tab").forEach((tab) => {
       tab.addEventListener("click", () => {
         currentFilter = tab.dataset.filter;
@@ -281,37 +235,6 @@ document.addEventListener("DOMContentLoaded", () => {
         renderFilterTabs();
         applyFiltersAndRender();
       });
-    });
-  }
-
-  // 7. 手機版 Bottom Sheet 開關
-  function openShelfBottomSheet() {
-    if (shelfBottomSheet) {
-      shelfBottomSheet.classList.add("active");
-      document.body.style.overflow = "hidden";
-    }
-  }
-
-  function closeShelfBottomSheet() {
-    if (shelfBottomSheet) {
-      shelfBottomSheet.classList.remove("active");
-      document.body.style.overflow = "";
-    }
-  }
-
-  if (btnMobileShelfTrigger) {
-    btnMobileShelfTrigger.addEventListener("click", openShelfBottomSheet);
-  }
-
-  if (btnCloseShelfSheet) {
-    btnCloseShelfSheet.addEventListener("click", closeShelfBottomSheet);
-  }
-
-  if (shelfBottomSheet) {
-    shelfBottomSheet.addEventListener("click", (e) => {
-      if (e.target === shelfBottomSheet) {
-        closeShelfBottomSheet();
-      }
     });
   }
 
