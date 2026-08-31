@@ -15,10 +15,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnBackToTop = document.getElementById("btn-back-to-top");
   const floatingBackToTop = document.getElementById("floating-back-to-top");
 
-  // Modals
+  // Modals & Bottom Sheet
   const scanModal = document.getElementById("scan-modal");
   const bookDetailModal = document.getElementById("book-detail-modal");
   const manualAddModal = document.getElementById("manual-add-modal");
+  const shelfBottomSheet = document.getElementById("shelf-bottom-sheet");
+  const shelfSheetList = document.getElementById("shelf-sheet-list");
+  const btnMobileShelfTrigger = document.getElementById("btn-mobile-shelf-trigger");
+  const mobileShelfLabel = document.getElementById("mobile-shelf-label");
+  const btnCloseShelfSheet = document.getElementById("btn-close-shelf-sheet");
   const btnOpenScan = document.getElementById("btn-open-scan");
   const btnCloseScan = document.getElementById("btn-close-scan");
   const btnCloseDetail = document.getElementById("btn-close-detail");
@@ -198,7 +203,7 @@ document.addEventListener("DOMContentLoaded", () => {
     applyFiltersAndRender();
   }
 
-  // 6. 書架與分類標籤渲染 (橫向滑動膠囊標籤列)
+  // 6. 書架與分類標籤渲染 (桌面橫向膠囊 + 手機底部抽屜選單)
   function renderFilterTabs() {
     const totalAllCount = cachedBooks.length;
     const shelfCounts = {};
@@ -209,7 +214,23 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    let tabsHtml = `
+    // 1. 更新手機版觸發按鈕上的標籤名稱與數量
+    let currentLabelText = "所有書籍";
+    if (currentFilter.startsWith("shelf:")) {
+      const currentShelfId = parseInt(currentFilter.replace("shelf:", ""), 10);
+      const currentShelf = shelvesList.find((s) => s.id === currentShelfId);
+      if (currentShelf) {
+        currentLabelText = `${currentShelf.name} (${shelfCounts[currentShelf.id] || 0})`;
+      }
+    } else {
+      currentLabelText = `所有書籍 (${totalAllCount})`;
+    }
+    if (mobileShelfLabel) {
+      mobileShelfLabel.textContent = currentLabelText;
+    }
+
+    // 2. 渲染桌面版篩選標籤膠囊 (Pills)
+    let desktopHtml = `
       <button class="filter-tab ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">
         所有書籍 <span class="shelf-count-badge">${totalAllCount}</span>
       </button>
@@ -218,16 +239,62 @@ document.addEventListener("DOMContentLoaded", () => {
     for (const s of shelvesList) {
       const count = shelfCounts[s.id] || 0;
       const isActive = currentFilter === `shelf:${s.id}`;
-      tabsHtml += `
+      desktopHtml += `
         <button class="filter-tab ${isActive ? 'active' : ''}" data-filter="shelf:${s.id}">
           ${s.name} <span class="shelf-count-badge">${count}</span>
         </button>
       `;
     }
 
-    filterTabs.innerHTML = tabsHtml;
+    filterTabs.innerHTML = desktopHtml;
 
-    // 綁定標籤點擊事件
+    // 3. 渲染手機版 Bottom Sheet 列表
+    if (shelfSheetList) {
+      let sheetHtml = `
+        <button class="sheet-shelf-item ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">
+          <div class="sheet-shelf-left">
+            <span>📚</span>
+            <span>所有書籍</span>
+          </div>
+          <div class="sheet-shelf-right">
+            <span class="shelf-count-badge">${totalAllCount} 本</span>
+            <span class="shelf-check-icon">✓</span>
+          </div>
+        </button>
+      `;
+
+      for (const s of shelvesList) {
+        const count = shelfCounts[s.id] || 0;
+        const isActive = currentFilter === `shelf:${s.id}`;
+        sheetHtml += `
+          <button class="sheet-shelf-item ${isActive ? 'active' : ''}" data-filter="shelf:${s.id}">
+            <div class="sheet-shelf-left">
+              <span>🏷️</span>
+              <span>${s.name}</span>
+            </div>
+            <div class="sheet-shelf-right">
+              <span class="shelf-count-badge">${count} 本</span>
+              <span class="shelf-check-icon">✓</span>
+            </div>
+          </button>
+        `;
+      }
+
+      shelfSheetList.innerHTML = sheetHtml;
+
+      // 綁定手機抽屜項目點擊事件
+      shelfSheetList.querySelectorAll(".sheet-shelf-item").forEach((item) => {
+        item.addEventListener("click", () => {
+          currentFilter = item.dataset.filter;
+          currentPage = 1;
+          closeShelfBottomSheet();
+          renderFilterTabs();
+          applyFiltersAndRender();
+        });
+      });
+    }
+
+    // 4. 綁定桌面標籤點擊事件
     filterTabs.querySelectorAll(".filter-tab").forEach((tab) => {
       tab.addEventListener("click", () => {
         currentFilter = tab.dataset.filter;
@@ -235,6 +302,37 @@ document.addEventListener("DOMContentLoaded", () => {
         renderFilterTabs();
         applyFiltersAndRender();
       });
+    });
+  }
+
+  // 7. 手機版 Bottom Sheet 開關
+  function openShelfBottomSheet() {
+    if (shelfBottomSheet) {
+      shelfBottomSheet.classList.add("active");
+      document.body.style.overflow = "hidden";
+    }
+  }
+
+  function closeShelfBottomSheet() {
+    if (shelfBottomSheet) {
+      shelfBottomSheet.classList.remove("active");
+      document.body.style.overflow = "";
+    }
+  }
+
+  if (btnMobileShelfTrigger) {
+    btnMobileShelfTrigger.addEventListener("click", openShelfBottomSheet);
+  }
+
+  if (btnCloseShelfSheet) {
+    btnCloseShelfSheet.addEventListener("click", closeShelfBottomSheet);
+  }
+
+  if (shelfBottomSheet) {
+    shelfBottomSheet.addEventListener("click", (e) => {
+      if (e.target === shelfBottomSheet) {
+        closeShelfBottomSheet();
+      }
     });
   }
 

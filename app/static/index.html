@@ -2,7 +2,7 @@
 <html lang="zh-TW" data-theme="light">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>個人藏書庫 (Book Storage)</title>
   
   <!-- PWA & Mobile Meta -->
@@ -15,7 +15,7 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="/static/css/style.css?v=5">
+  <link rel="stylesheet" href="/static/css/style.css?v=6">
 </head>
 
 <body>
@@ -41,15 +41,23 @@
 
   <!-- Main Content Area -->
   <main class="app-main">
-    <!-- Controls Bar -->
+    <!-- Controls Bar (搜尋列 + 手機專用書架選擇大按鈕) -->
     <div class="controls-bar">
       <div class="search-box">
         <span class="search-icon">🔍</span>
         <input type="text" id="search-input" class="search-input" placeholder="搜尋書名、作者、ISBN、出版社、個人筆記..." autocomplete="off">
       </div>
+      <!-- 手機版專屬書架選擇按鈕 (螢幕 <= 768px 時呈現) -->
+      <button id="btn-mobile-shelf-trigger" class="btn-mobile-shelf-trigger" title="選擇所屬書架分類">
+        <div class="shelf-btn-left">
+          <span class="shelf-btn-icon">📁</span>
+          <span id="mobile-shelf-label" class="shelf-btn-label">所有書籍</span>
+        </div>
+        <span class="shelf-btn-arrow">▾</span>
+      </button>
     </div>
 
-    <!-- Filter & Shelves Horizontal Tabs (橫向滑動書架列) -->
+    <!-- Filter & Shelves Horizontal Tabs (電腦/平板寬螢幕呈現) -->
     <div id="filter-tabs" class="filter-tabs">
       <!-- Generated Dynamically -->
     </div>
@@ -209,14 +217,30 @@
     </div>
   </div>
 
+  <!-- Mobile Shelf Bottom Sheet Modal (手機專用抽屜) -->
+  <div id="shelf-bottom-sheet" class="modal-overlay bottom-sheet-overlay">
+    <div class="bottom-sheet-card">
+      <div class="bottom-sheet-header">
+        <div class="bottom-sheet-handle"></div>
+        <div class="bottom-sheet-title-row">
+          <h3 class="modal-title">📁 選擇所屬書架</h3>
+          <button id="btn-close-shelf-sheet" class="btn-icon">✕</button>
+        </div>
+      </div>
+      <div id="shelf-sheet-list" class="bottom-sheet-list">
+        <!-- Generated Dynamically -->
+      </div>
+    </div>
+  </div>
+
   <!-- Scroll To Top Floating Button -->
   <button id="floating-back-to-top" class="floating-back-to-top" title="回到頁首">
     ⬆️
   </button>
 
   <!-- JavaScript Modules -->
-  <script src="/static/js/db_offline.js?v=5"></script>
-  <script src="/static/js/scanner.js?v=5"></script>
-  <script src="/static/js/app.js?v=5"></script>
+  <script src="/static/js/db_offline.js?v=6"></script>
+  <script src="/static/js/scanner.js?v=6"></script>
+  <script src="/static/js/app.js?v=6"></script>
 </body>
 </html>
