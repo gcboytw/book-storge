@@ -90,6 +90,7 @@ def update_book(book_id: int, payload: BookUpdate, db: Session = Depends(get_db)
     if not book:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="書籍不存在")
 
+    old_cover = book.cover_url
     update_data = payload.model_dump(exclude_unset=True)
 
     if "cover_url" in update_data and update_data["cover_url"]:
@@ -104,6 +105,12 @@ def update_book(book_id: int, payload: BookUpdate, db: Session = Depends(get_db)
 
     db.commit()
     db.refresh(book)
+
+    if old_cover and old_cover != book.cover_url:
+        other_using_old = db.query(Book).filter(Book.cover_url == old_cover).first()
+        if not other_using_old:
+            BookLookupService.delete_cover_file(old_cover)
+
     return book
 
 @router.post("/books/{book_id}/cover", response_model=BookResponse)
@@ -116,6 +123,8 @@ async def upload_book_cover(
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="書籍不存在")
+
+    old_cover = book.cover_url
 
     # 確保副檔名
     ext = Path(file.filename or "").suffix.lower()
@@ -134,4 +143,10 @@ async def upload_book_cover(
     book.cover_url = f"/static/covers/{filename}"
     db.commit()
     db.refresh(book)
+
+    if old_cover and old_cover != book.cover_url:
+        other_using_old = db.query(Book).filter(Book.cover_url == old_cover).first()
+        if not other_using_old:
+            BookLookupService.delete_cover_file(old_cover)
+
     return book

@@ -172,10 +172,11 @@ docker-compose up -d --build
 
 ## 🛠️ 常用指令速查
 
-| 操作               | 指令                                                 |
-|:---------------- |:-------------------------------------------------- |
-| **安裝 / 同步套件**    | `uv sync`                                          |
-| **新增 Python 套件** | `uv add <package_name>`                            |
-| **啟動熱重載伺服器**     | `uv run uvicorn app.main:app --reload --port 8000` |
-| **匯入既有 CSV 書目**  | `uv run scripts/import_legacy_csv.py`              |
-| **測試單一 ISBN 爬取** | `uv run python fetch_books_tw.py 9789867848871`    |
+| 操作               | 指令                                                          |
+|:---------------- |:----------------------------------------------------------- |
+| **安裝 / 同步套件**    | `uv sync`                                                   |
+| **新增 Python 套件** | `uv add <package_name>`                                     |
+| **啟動熱重載伺服器**     | `uv run uvicorn app.main:app --reload --port 8000`          |
+| **手機區網下測試**     | `uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000` |
+| **匯入既有 CSV 書目**  | `uv run scripts/import_legacy_csv.py`                       |
+| **測試單一 ISBN 爬取** | `uv run python fetch_books_tw.py 9789867848871`             |

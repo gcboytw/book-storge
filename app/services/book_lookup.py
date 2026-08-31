@@ -56,6 +56,27 @@ class BookLookupService:
         return image_url
 
     @classmethod
+    def delete_cover_file(cls, cover_url: str | None) -> bool:
+        """
+        若 cover_url 是本地檔案 (/static/covers/...)，嘗試自 settings.COVERS_DIR 刪除實體檔案。
+        """
+        if not cover_url or not isinstance(cover_url, str):
+            return False
+
+        if cover_url.startswith("/static/covers/"):
+            filename = cover_url.replace("/static/covers/", "").strip()
+            # 安全性檢查：防止路徑遍歷
+            if filename and "/" not in filename and "\\" not in filename and ".." not in filename:
+                file_path = settings.COVERS_DIR / filename
+                try:
+                    if file_path.is_file():
+                        file_path.unlink(missing_ok=True)
+                        return True
+                except Exception as e:
+                    print(f"[CoverDelete] 刪除本地封面檔案失敗 ({file_path}): {e}")
+        return False
+
+    @classmethod
     def fetch_from_sanmin(cls, isbn: str) -> dict | None:
         """
         第一順位：三民書局站內直接搜尋 (臺灣最完整繁中出版品資料庫)

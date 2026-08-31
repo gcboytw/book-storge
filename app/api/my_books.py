@@ -6,6 +6,7 @@ from sqlalchemy import or_
 from app.core.database import get_db
 from app.models import MyBook, Book, Shelf
 from app.schemas import MyBookCreate, MyBookUpdate, MyBookResponse, BookCreate
+from app.services import BookLookupService
 
 def get_taipei_now():
     return datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
@@ -126,11 +127,32 @@ def update_my_book(my_book_id: int, payload: MyBookUpdate, db: Session = Depends
 
 @router.delete("/{my_book_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_my_book(my_book_id: int, db: Session = Depends(get_db)):
-    """移出個人藏書"""
+    """移出個人藏書，並清理不再被引用的全域書目與本地書封圖檔"""
     item = db.query(MyBook).filter(MyBook.id == my_book_id).first()
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="藏書紀錄不存在")
 
+    book = item.book
+    book_id = item.book_id
+    cover_url = book.cover_url if book else None
+
+    # 1. 刪除個人藏書紀錄
     db.delete(item)
+    db.flush()
+
+    # 2. 檢查是否還有其他 MyBook 關聯到此 Book
+    other_my_books = db.query(MyBook).filter(MyBook.book_id == book_id).first()
+    if not other_my_books and book:
+        # 沒有其他人收藏這本書，一併清理全域 Book
+        db.delete(book)
+        db.flush()
+
+    # 3. 檢查資料庫中是否還有其他 Book 使用相同的 cover_url
+    if cover_url:
+        other_using_cover = db.query(Book).filter(Book.cover_url == cover_url).first()
+        if not other_using_cover:
+            # 安全刪除實體檔案
+            BookLookupService.delete_cover_file(cover_url)
+
     db.commit()
     return None
