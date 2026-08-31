@@ -1,5 +1,15 @@
-from datetime import datetime
+from datetime import datetime, date
+from decimal import Decimal
 from pydantic import BaseModel, Field
+
+class ShelfBrief(BaseModel):
+    id: int
+    uuid: str | None = None
+    name: str
+    sort_order: int = 0
+
+    class Config:
+        from_attributes = True
 
 class BookBase(BaseModel):
     title: str = Field(..., description="書名")
@@ -19,6 +29,16 @@ class BookBase(BaseModel):
     metadata_source: str = "Manual"
     uuid: str | None = None
 
+    # 個人藏書欄位
+    shelf_id: int | None = None
+    status: str | None = "unread"
+    purchase_date: date | None = None
+    purchase_price: float | Decimal | None = None
+    purchase_place: str | None = None
+    condition: str | None = None
+    rating: int | None = None
+    notes: str | None = None
+
 class BookCreate(BookBase):
     pass
 
@@ -37,10 +57,21 @@ class BookUpdate(BaseModel):
     isbn10: str | None = None
     ean: str | None = None
     cover_url: str | None = None
+    metadata_source: str | None = None
+    
+    shelf_id: int | None = None
+    status: str | None = None
+    purchase_date: date | None = None
+    purchase_price: float | Decimal | None = None
+    purchase_place: str | None = None
+    condition: str | None = None
+    rating: int | None = None
+    notes: str | None = None
 
 class BookResponse(BookBase):
     id: int
     uuid: str | None = None
+    shelf: ShelfBrief | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

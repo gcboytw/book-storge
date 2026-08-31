@@ -1,12 +1,17 @@
 import uuid
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_
 from app.core.config import settings
 from app.core.database import get_db
-from app.models import Book
+from app.models import Book, Shelf
 from app.schemas import BookCreate, BookUpdate, BookResponse, ISBNLookupRequest
 from app.services import BookLookupService
+
+def get_taipei_now():
+    return datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
 
 router = APIRouter(prefix="/api", tags=["Books"])
 
@@ -25,7 +30,7 @@ def lookup_isbn(payload: ISBNLookupRequest, db: Session = Depends(get_db)):
         )
 
     # 1. 查本地資料庫
-    existing = db.query(Book).filter(
+    existing = db.query(Book).options(joinedload(Book.shelf)).filter(
         (Book.isbn13 == clean_isbn) | (Book.isbn10 == clean_isbn) | (Book.ean == clean_isbn)
     ).first()
 
@@ -48,26 +53,69 @@ def lookup_isbn(payload: ISBNLookupRequest, db: Session = Depends(get_db)):
         "book": external_data
     }
 
+@router.get("/books", response_model=list[BookResponse])
+def list_books(
+    status_filter: str | None = Query(None, alias="status", description="篩選狀態"),
+    shelf_id: int | None = Query(None, description="篩選書架 ID (0 表示未分類)"),
+    q: str | None = Query(None, description="關鍵字搜尋 (書名、作者、ISBN、出版社、筆記)"),
+    updated_after: datetime | None = Query(None, description="增量同步更新時間"),
+    db: Session = Depends(get_db)
+):
+    """取得藏書清單 (依建立時間新->舊排序)"""
+    query = db.query(Book).outerjoin(Book.shelf).options(joinedload(Book.shelf))
+
+    if status_filter:
+        query = query.filter(Book.status == status_filter)
+
+    if shelf_id is not None:
+        if shelf_id == 0:
+            query = query.filter(Book.shelf_id == None)
+        else:
+            query = query.filter(Book.shelf_id == shelf_id)
+
+    if updated_after:
+        query = query.filter(Book.updated_at >= updated_after)
+
+    if q:
+        search = f"%{q.strip()}%"
+        query = query.filter(
+            or_(
+                Book.title.ilike(search),
+                Book.subtitle.ilike(search),
+                Book.author_display.ilike(search),
+                Book.publisher.ilike(search),
+                Book.isbn13.ilike(search),
+                Book.isbn10.ilike(search),
+                Book.ean.ilike(search),
+                Book.notes.ilike(search)
+            )
+        )
+
+    return query.order_by(Book.created_at.desc(), Book.id.desc()).all()
+
 @router.get("/books/{book_id}", response_model=BookResponse)
 def get_book(book_id: int, db: Session = Depends(get_db)):
-    """取得特定書籍詳細資訊"""
-    book = db.query(Book).filter(Book.id == book_id).first()
+    """取得特定藏書詳細資訊"""
+    book = db.query(Book).options(joinedload(Book.shelf)).filter(Book.id == book_id).first()
     if not book:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="書籍不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="藏書紀錄不存在")
     return book
 
 @router.post("/books", response_model=BookResponse, status_code=status.HTTP_201_CREATED)
 def create_book(payload: BookCreate, db: Session = Depends(get_db)):
-    """手動建立全域書目 (自動下載外部網路封面圖至伺服器存檔)"""
+    """新增藏書 (若封面為外部網路圖片自動下載至伺服器存檔)"""
     # 檢查是否已存在相同的 ISBN
     if payload.isbn13:
         exist = db.query(Book).filter(Book.isbn13 == payload.isbn13).first()
         if exist:
-            return exist
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"ISBN [{payload.isbn13}] 的書籍已存在於藏書清單中囉！"
+            )
 
     data = payload.model_dump(exclude_unset=True)
-    
-    # 若封面是外部網路圖片，自動下載儲存至本地 static/covers/
+
+    # 外部網路封面自動下載
     if data.get("cover_url") and data["cover_url"].startswith("http"):
         data["cover_url"] = BookLookupService.download_and_save_cover(
             data["cover_url"],
@@ -81,14 +129,15 @@ def create_book(payload: BookCreate, db: Session = Depends(get_db)):
     db.add(new_book)
     db.commit()
     db.refresh(new_book)
-    return new_book
+
+    return db.query(Book).options(joinedload(Book.shelf)).filter(Book.id == new_book.id).first()
 
 @router.patch("/books/{book_id}", response_model=BookResponse)
 def update_book(book_id: int, payload: BookUpdate, db: Session = Depends(get_db)):
-    """更新書籍資訊（可替換封面網址，自動下載至伺服器）"""
+    """更新藏書資料、心得筆記、書架或替換封面"""
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="書籍不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="藏書紀錄不存在")
 
     old_cover = book.cover_url
     update_data = payload.model_dump(exclude_unset=True)
@@ -103,15 +152,36 @@ def update_book(book_id: int, payload: BookUpdate, db: Session = Depends(get_db)
     for key, value in update_data.items():
         setattr(book, key, value)
 
+    book.updated_at = get_taipei_now()
     db.commit()
     db.refresh(book)
 
+    # 若舊書封圖檔已更換且不再使用，清理舊實體檔案
     if old_cover and old_cover != book.cover_url:
         other_using_old = db.query(Book).filter(Book.cover_url == old_cover).first()
         if not other_using_old:
             BookLookupService.delete_cover_file(old_cover)
 
-    return book
+    return db.query(Book).options(joinedload(Book.shelf)).filter(Book.id == book.id).first()
+
+@router.delete("/books/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_book(book_id: int, db: Session = Depends(get_db)):
+    """移出個人藏書並自動清理本機書封檔案"""
+    book = db.query(Book).filter(Book.id == book_id).first()
+    if not book:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="藏書紀錄不存在")
+
+    cover_url = book.cover_url
+    db.delete(book)
+    db.commit()
+
+    # 清理本地書封
+    if cover_url:
+        other_using = db.query(Book).filter(Book.cover_url == cover_url).first()
+        if not other_using:
+            BookLookupService.delete_cover_file(cover_url)
+
+    return None
 
 @router.post("/books/{book_id}/cover", response_model=BookResponse)
 async def upload_book_cover(
@@ -122,7 +192,7 @@ async def upload_book_cover(
     """直接上傳本機圖檔替換書籍封面"""
     book = db.query(Book).filter(Book.id == book_id).first()
     if not book:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="書籍不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="藏書紀錄不存在")
 
     old_cover = book.cover_url
 
@@ -141,6 +211,7 @@ async def upload_book_cover(
         f.write(content)
 
     book.cover_url = f"/static/covers/{filename}"
+    book.updated_at = get_taipei_now()
     db.commit()
     db.refresh(book)
 
@@ -149,4 +220,4 @@ async def upload_book_cover(
         if not other_using_old:
             BookLookupService.delete_cover_file(old_cover)
 
-    return book
+    return db.query(Book).options(joinedload(Book.shelf)).filter(Book.id == book.id).first()

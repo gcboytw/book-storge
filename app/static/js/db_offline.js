@@ -3,7 +3,7 @@
  */
 
 const DB_NAME = "BookStorageOfflineDB";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_BOOKS = "cached_books";
 const STORE_META = "sync_metadata";
 
@@ -21,13 +21,11 @@ class OfflineStorage {
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
         
-        // 書籍儲存庫
-        let store;
-        if (!db.objectStoreNames.contains(STORE_BOOKS)) {
-          store = db.createObjectStore(STORE_BOOKS, { keyPath: "my_book_id" });
-        } else {
-          store = event.target.transaction.objectStore(STORE_BOOKS);
+        // 書籍儲存庫 (使用 id 作為 keyPath)
+        if (db.objectStoreNames.contains(STORE_BOOKS)) {
+          db.deleteObjectStore(STORE_BOOKS);
         }
+        const store = db.createObjectStore(STORE_BOOKS, { keyPath: "id" });
 
         if (!store.indexNames.contains("uuid")) store.createIndex("uuid", "uuid", { unique: false });
         if (!store.indexNames.contains("isbn13")) store.createIndex("isbn13", "isbn13", { unique: false });
@@ -134,6 +132,7 @@ class OfflineStorage {
       return (
         (b.title && b.title.toLowerCase().includes(q)) ||
         (b.author && b.author.toLowerCase().includes(q)) ||
+        (b.author_display && b.author_display.toLowerCase().includes(q)) ||
         (b.publisher && b.publisher.toLowerCase().includes(q)) ||
         (b.isbn13 && b.isbn13.includes(q)) ||
         (b.isbn10 && b.isbn10.includes(q)) ||

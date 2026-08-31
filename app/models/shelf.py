@@ -20,4 +20,4 @@ class Shelf(Base):
     updated_at = Column(DateTime, default=get_taipei_now, onupdate=get_taipei_now)
 
     # 關聯
-    my_books = relationship("MyBook", back_populates="shelf")
+    books = relationship("Book", back_populates="shelf")

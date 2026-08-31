@@ -1,5 +1,5 @@
 /**
- * app.js - 個人藏書庫 SPA 主畫面邏輯、分頁、排序、封面替換與離線整合
+ * app.js - 個人藏書庫 SPA 主畫面邏輯、分頁、排序、封面替換與離線整合 (單一 Books 模型優化版)
  */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -45,7 +45,6 @@ document.addEventListener("DOMContentLoaded", () => {
   let shelvesList = [];
   let activeBook = null;
   let scannerInstance = null;
-  let tempLookupBookId = null;
 
   // 1. 主題切換 (Light / Dark)
   const initTheme = () => {
@@ -145,11 +144,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       // 3. 取得藏書列表
-      const booksResp = await fetch("/api/my-books");
+      const booksResp = await fetch("/api/books");
       if (booksResp.ok) {
         const data = await booksResp.json();
         cachedBooks = sortBooksByCreatedAtDesc(data);
-        renderFilterTabs(); // 藏書載入後即時更新書架數量
+        renderFilterTabs();
         applyFiltersAndRender();
       }
     } catch (err) {
@@ -167,41 +166,30 @@ document.addEventListener("DOMContentLoaded", () => {
       populateShelfDropdowns();
     }
     
-    // 轉為格式相容的清單
+    // 轉為統一的清單結構
     const formatted = offlineBooks.map((item) => ({
-      id: item.my_book_id,
+      id: item.id,
       uuid: item.uuid,
-      book_id: item.book_id,
-      status: item.status,
+      title: item.title,
+      subtitle: item.subtitle,
+      author_display: item.author || item.author_display,
+      publisher: item.publisher,
+      publication_date: item.publication_date,
+      isbn13: item.isbn13,
+      isbn10: item.isbn10,
+      ean: item.ean,
+      cover_url: item.cover_url,
+      description: item.description,
+      category: item.category,
       shelf_id: item.shelf_id,
-      rating: item.rating,
+      shelf: item.shelf_name ? { id: item.shelf_id, name: item.shelf_name } : null,
       notes: item.notes,
-      purchase_date: item.purchase_date,
-      purchase_price: item.purchase_price,
-      purchase_place: item.purchase_place,
       created_at: item.created_at || null,
-      updated_at: item.updated_at || null,
-      book: {
-        id: item.book_id,
-        uuid: item.book_uuid,
-        title: item.title,
-        subtitle: item.subtitle,
-        author_display: item.author,
-        publisher: item.publisher,
-        publication_date: item.publication_date,
-        isbn13: item.isbn13,
-        isbn10: item.isbn10,
-        ean: item.ean,
-        cover_url: item.cover_url,
-        description: item.description,
-        category: item.category,
-        created_at: item.created_at || null
-      },
-      shelf: item.shelf_name ? { id: item.shelf_id, name: item.shelf_name } : null
+      updated_at: item.updated_at || null
     }));
 
     cachedBooks = sortBooksByCreatedAtDesc(formatted);
-    renderFilterTabs(); // 離線資料載入後即時更新書架數量
+    renderFilterTabs();
     applyFiltersAndRender();
   }
 
@@ -218,142 +206,135 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // 2. 決定目前選中的書架標題名稱
-    let currentTitle = "全部書籍";
+    let currentLabelText = "所有書籍";
     if (currentFilter.startsWith("shelf:")) {
-      const sId = parseInt(currentFilter.replace("shelf:", ""), 10);
-      const found = shelvesList.find((s) => s.id === sId);
-      if (found) currentTitle = found.name;
+      const currentShelfId = parseInt(currentFilter.replace("shelf:", ""), 10);
+      const currentShelf = shelvesList.find((s) => s.id === currentShelfId);
+      if (currentShelf) {
+        currentLabelText = `${currentShelf.name} (${shelfCounts[currentShelf.id] || 0})`;
+      }
+    } else {
+      currentLabelText = `所有書籍 (${totalAllCount})`;
     }
     if (mobileShelfLabel) {
-      mobileShelfLabel.textContent = currentTitle;
+      mobileShelfLabel.textContent = currentLabelText;
     }
 
-    // 3. 渲染桌面版橫向膠囊 (Desktop / Tablet)
+    // 3. 渲染桌面版篩選標籤膠囊 (Pills)
     let desktopHtml = `
-      <button class="filter-chip ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">
-        全部書籍 (${totalAllCount})
+      <button class="filter-tab ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">
+        所有書籍 <span class="shelf-count-badge">${totalAllCount}</span>
       </button>
     `;
 
-    for (const shelf of shelvesList) {
-      const active = currentFilter === `shelf:${shelf.id}` ? "active" : "";
-      const count = shelfCounts[shelf.id] || 0;
+    for (const s of shelvesList) {
+      const count = shelfCounts[s.id] || 0;
+      const isActive = currentFilter === `shelf:${s.id}`;
       desktopHtml += `
-        <button class="filter-chip ${active}" data-filter="shelf:${shelf.id}">
-          📁 ${shelf.name} (${count})
+        <button class="filter-tab ${isActive ? 'active' : ''}" data-filter="shelf:${s.id}">
+          ${s.name} <span class="shelf-count-badge">${count}</span>
         </button>
       `;
     }
+
     filterTabs.innerHTML = desktopHtml;
 
-    filterTabs.querySelectorAll(".filter-chip").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        currentFilter = btn.dataset.filter;
-        currentPage = 1;
-        renderFilterTabs();
-        applyFiltersAndRender();
-      });
-    });
-
-    // 4. 渲染手機版底部抽屜清單 (Mobile Bottom Sheet)
+    // 4. 渲染手機版 Bottom Sheet 列表
     if (shelfSheetList) {
       let sheetHtml = `
-        <button class="sheet-shelf-item ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">
-          <div class="sheet-shelf-left">
-            <span>📚</span>
-            <span>全部書籍</span>
-          </div>
-          <div class="sheet-shelf-right">
-            <span class="shelf-count-badge">${totalAllCount} 本</span>
-            <span class="shelf-check-icon">✓</span>
-          </div>
-        </button>
+        <div class="shelf-sheet-item ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">
+          <span class="shelf-sheet-name">📚 所有書籍</span>
+          <span class="shelf-sheet-count">${totalAllCount} 本</span>
+        </div>
       `;
 
-      for (const shelf of shelvesList) {
-        const active = currentFilter === `shelf:${shelf.id}` ? "active" : "";
-        const count = shelfCounts[shelf.id] || 0;
+      for (const s of shelvesList) {
+        const count = shelfCounts[s.id] || 0;
+        const isActive = currentFilter === `shelf:${s.id}`;
         sheetHtml += `
-          <button class="sheet-shelf-item ${active}" data-filter="shelf:${shelf.id}">
-            <div class="sheet-shelf-left">
-              <span>📁</span>
-              <span>${shelf.name}</span>
-            </div>
-            <div class="sheet-shelf-right">
-              <span class="shelf-count-badge">${count} 本</span>
-              <span class="shelf-check-icon">✓</span>
-            </div>
-          </button>
+          <div class="shelf-sheet-item ${isActive ? 'active' : ''}" data-filter="shelf:${s.id}">
+            <span class="shelf-sheet-name">🏷️ ${s.name}</span>
+            <span class="shelf-sheet-count">${count} 本</span>
+          </div>
         `;
       }
 
       shelfSheetList.innerHTML = sheetHtml;
 
-      shelfSheetList.querySelectorAll(".sheet-shelf-item").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          currentFilter = btn.dataset.filter;
+      // 綁定手機抽屜項目點擊事件
+      shelfSheetList.querySelectorAll(".shelf-sheet-item").forEach((item) => {
+        item.addEventListener("click", () => {
+          currentFilter = item.dataset.filter;
           currentPage = 1;
-          if (shelfBottomSheet) {
-            shelfBottomSheet.classList.remove("active");
-          }
+          closeShelfBottomSheet();
           renderFilterTabs();
           applyFiltersAndRender();
         });
       });
     }
+
+    // 綁定桌面標籤點擊事件
+    filterTabs.querySelectorAll(".filter-tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        currentFilter = tab.dataset.filter;
+        currentPage = 1;
+        renderFilterTabs();
+        applyFiltersAndRender();
+      });
+    });
   }
 
-  // 綁定手機書架抽屜開啟與關閉事件
-  if (btnMobileShelfTrigger && shelfBottomSheet) {
-    btnMobileShelfTrigger.addEventListener("click", () => {
+  // 7. 手機版 Bottom Sheet 開關
+  function openShelfBottomSheet() {
+    if (shelfBottomSheet) {
       shelfBottomSheet.classList.add("active");
-    });
+      document.body.style.overflow = "hidden";
+    }
   }
 
-  if (btnCloseShelfSheet && shelfBottomSheet) {
-    btnCloseShelfSheet.addEventListener("click", () => {
+  function closeShelfBottomSheet() {
+    if (shelfBottomSheet) {
       shelfBottomSheet.classList.remove("active");
-    });
+      document.body.style.overflow = "";
+    }
+  }
+
+  if (btnMobileShelfTrigger) {
+    btnMobileShelfTrigger.addEventListener("click", openShelfBottomSheet);
+  }
+
+  if (btnCloseShelfSheet) {
+    btnCloseShelfSheet.addEventListener("click", closeShelfBottomSheet);
   }
 
   if (shelfBottomSheet) {
     shelfBottomSheet.addEventListener("click", (e) => {
       if (e.target === shelfBottomSheet) {
-        shelfBottomSheet.classList.remove("active");
+        closeShelfBottomSheet();
       }
     });
   }
 
   function populateShelfDropdowns() {
-    const manualShelfSelect = document.getElementById("manual-shelf");
-    if (!manualShelfSelect) return;
-    let shelfOptions = `<option value="">未分類</option>`;
+    const editSelect = document.getElementById("edit-shelf");
+    const manualSelect = document.getElementById("manual-shelf");
+    
+    let options = `<option value="">未分類</option>`;
     for (const s of shelvesList) {
-      shelfOptions += `<option value="${s.id}">${s.name}</option>`;
+      options += `<option value="${s.id}">${s.name}</option>`;
     }
-    manualShelfSelect.innerHTML = shelfOptions;
+
+    if (editSelect) editSelect.innerHTML = options;
+    if (manualSelect) manualSelect.innerHTML = options;
   }
 
-  // 7. 格式化日期時間 (UTC+8 台灣時間)
-  function formatDateTime(dateStr) {
-    if (!dateStr) return "無紀錄";
-    try {
-      // 支援各種 ISO 或 standard 日期格式
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return dateStr;
-      
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      const hours = String(d.getHours()).padStart(2, "0");
-      const minutes = String(d.getMinutes()).padStart(2, "0");
-      return `${year}/${month}/${day} ${hours}:${minutes}`;
-    } catch {
-      return dateStr;
-    }
-  }
+  // 8. 搜尋與篩選邏輯 (支援分頁)
+  searchInput.addEventListener("input", (e) => {
+    currentSearch = e.target.value;
+    currentPage = 1;
+    applyFiltersAndRender();
+  });
 
-  // 8. 篩選與渲染卡片（純粹卡片：書名、作者、書封）
   function applyFiltersAndRender() {
     let filtered = [...cachedBooks];
 
@@ -361,7 +342,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (currentFilter !== "all") {
       if (currentFilter.startsWith("shelf:")) {
         const shelfId = parseInt(currentFilter.replace("shelf:", ""), 10);
-        filtered = filtered.filter((b) => b.shelf_id === shelfId);
+        filtered = filtered.filter((b) => (b.shelf_id === shelfId || (b.shelf && b.shelf.id === shelfId)));
       }
     }
 
@@ -369,15 +350,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if (currentSearch) {
       const q = currentSearch.toLowerCase().trim();
       filtered = filtered.filter((b) => {
-        const book = b.book || {};
-        const titleMatch = (book.title || "").toLowerCase().includes(q);
-        const subMatch = (book.subtitle || "").toLowerCase().includes(q);
-        const authorMatch = (book.author_display || "").toLowerCase().includes(q);
-        const pubMatch = (book.publisher || "").toLowerCase().includes(q);
-        const isbn13Match = (book.isbn13 || "").includes(q);
-        const isbn10Match = (book.isbn10 || "").includes(q);
+        const titleMatch = (b.title || "").toLowerCase().includes(q);
+        const subMatch = (b.subtitle || "").toLowerCase().includes(q);
+        const authorMatch = (b.author_display || "").toLowerCase().includes(q);
+        const pubMatch = (b.publisher || "").toLowerCase().includes(q);
+        const isbn13Match = (b.isbn13 || "").includes(q);
+        const isbn10Match = (b.isbn10 || "").includes(q);
+        const eanMatch = (b.ean || "").includes(q);
         const notesMatch = (b.notes || "").toLowerCase().includes(q);
-        return titleMatch || subMatch || authorMatch || pubMatch || isbn13Match || isbn10Match || notesMatch;
+        return titleMatch || subMatch || authorMatch || pubMatch || isbn13Match || isbn10Match || eanMatch || notesMatch;
       });
     }
 
@@ -395,7 +376,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const endIndex = Math.min(startIndex + PAGE_SIZE, totalItems);
     const currentPageBooks = filtered.slice(startIndex, endIndex);
 
-    totalCountEl.textContent = `共 ${totalItems} 本藏書 ${totalPages > 1 ? `(第 ${currentPage} / ${totalPages} 頁，每頁 50 本)` : ""}`;
+    totalCountEl.textContent = `共 ${totalItems} 本藏書 ${totalPages > 1 ? `(第 ${currentPage} / ${totalPages} 頁，每頁 24 本)` : ""}`;
 
     if (totalItems === 0) {
       booksGrid.innerHTML = `
@@ -457,7 +438,7 @@ document.addEventListener("DOMContentLoaded", () => {
     html += `
       <button class="pagination-btn" id="page-next" ${currentPage === totalPages ? 'disabled' : ''} title="下一頁">下一頁 ›</button>
       <button class="pagination-btn" id="page-last" ${currentPage === totalPages ? 'disabled' : ''} title="最後一頁">»</button>
-      <div class="pagination-info">每頁 50 本 · 顯示第 ${((currentPage - 1) * PAGE_SIZE) + 1} - ${Math.min(currentPage * PAGE_SIZE, totalItems)} 本 (共 ${totalItems} 本)</div>
+      <div class="pagination-info">每頁 24 本 · 顯示第 ${((currentPage - 1) * PAGE_SIZE) + 1} - ${Math.min(currentPage * PAGE_SIZE, totalItems)} 本 (共 ${totalItems} 本)</div>
     `;
 
     paginationContainer.innerHTML = html;
@@ -488,59 +469,73 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 10. 卡片渲染（僅書籍名稱、作者、書封、書架/出版社）
   function renderBookCard(item) {
-    const book = item.book || {};
-    const coverUrl = book.cover_url || "";
+    const coverUrl = item.cover_url || "";
+    const shelfName = item.shelf ? item.shelf.name : (item.publisher || "");
 
     return `
       <div class="book-card" data-id="${item.id}">
         <div class="book-cover-wrap">
           ${coverUrl ? `
-            <img class="book-cover-img" src="${coverUrl}" alt="${book.title}" loading="lazy" 
+            <img class="book-cover-img" src="${coverUrl}" alt="${item.title}" loading="lazy" 
                  onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
             <div class="book-cover-placeholder" style="display: none;">
-              <span style="font-size: 2rem;">📖</span>
-              <span style="font-size: 0.75rem; margin-top: 0.5rem;">${book.title}</span>
+               <span style="font-size: 2rem;">📖</span>
+               <span style="font-size: 0.75rem; margin-top: 0.5rem;">${item.title}</span>
             </div>
           ` : `
             <div class="book-cover-placeholder">
               <span style="font-size: 2rem;">📖</span>
-              <span style="font-size: 0.75rem; margin-top: 0.5rem;">${book.title}</span>
+              <span style="font-size: 0.75rem; margin-top: 0.5rem;">${item.title}</span>
             </div>
           `}
         </div>
         <div class="book-details">
-          <div class="book-title" title="${book.title}">${book.title}</div>
-          <div class="book-author">${book.author_display || "作者不詳"}</div>
+          <div class="book-title" title="${item.title}">${item.title}</div>
+          <div class="book-author">${item.author_display || "作者不詳"}</div>
           <div class="book-meta-footer">
-            <span>${item.shelf ? item.shelf.name : (book.publisher || "")}</span>
+            <span>${shelfName}</span>
           </div>
         </div>
       </div>
     `;
   }
 
-  // 11. 搜尋防抖
-  let debounceTimer;
-  searchInput.addEventListener("input", (e) => {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      currentSearch = e.target.value;
-      currentPage = 1;
-      applyFiltersAndRender();
-    }, 200);
-  });
+  // 11. 時間格式化函式 (+8 時區顯示)
+  function formatDateTime(isoString) {
+    if (!isoString) return "未知時間";
+    try {
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return isoString;
+      const pad = (n) => String(n).padStart(2, "0");
+      const year = d.getFullYear();
+      const month = pad(d.getMonth() + 1);
+      const date = pad(d.getDate());
+      const hours = pad(d.getHours());
+      const minutes = pad(d.getMinutes());
+      return `${year}-${month}-${date} ${hours}:${minutes}`;
+    } catch (e) {
+      return isoString;
+    }
+  }
 
   // 12. 條碼掃描 Modal
-  if (btnOpenScan) {
-    btnOpenScan.addEventListener("click", () => {
-      scanModal.classList.add("active");
-      startScanner();
-    });
+  function openScanner() {
+    scanModal.classList.add("active");
+    if (!scannerInstance) {
+      scannerInstance = new BarcodeScanner("scanner-video", onBarcodeDetected);
+    }
+    scannerInstance.start();
   }
 
-  if (btnCloseScan) {
-    btnCloseScan.addEventListener("click", closeScanner);
+  function closeScanner() {
+    scanModal.classList.remove("active");
+    if (scannerInstance) {
+      scannerInstance.stop();
+    }
   }
+
+  if (btnOpenScan) btnOpenScan.addEventListener("click", openScanner);
+  if (btnCloseScan) btnCloseScan.addEventListener("click", closeScanner);
 
   if (btnSwitchToManual) {
     btnSwitchToManual.addEventListener("click", () => {
@@ -549,31 +544,9 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function startScanner() {
-    const video = document.getElementById("scanner-video");
-    const scanStatus = document.getElementById("scan-status-text");
-    scanStatus.textContent = "鏡頭開啟中，請將條碼對準紅線...";
-
-    scannerInstance = new ISBNScanner("scanner-video", (detectedIsbn) => {
-      scanStatus.textContent = `🎯 偵測到 ISBN: ${detectedIsbn}，查詢書目中...`;
-      handleIsbnLookup(detectedIsbn);
-    });
-
-    scannerInstance.start().catch((err) => {
-      scanStatus.textContent = `⚠️ ${err.message}`;
-    });
-  }
-
-  function closeScanner() {
-    if (scannerInstance) {
-      scannerInstance.stop();
-      scannerInstance = null;
-    }
-    scanModal.classList.remove("active");
-  }
-
-  // 13. ISBN 查詢與自動填入
-  async function handleIsbnLookup(isbn) {
+  // 13. 掃描條碼成功回呼
+  async function onBarcodeDetected(isbn) {
+    console.log("掃描偵測到 ISBN:", isbn);
     try {
       const resp = await fetch("/api/isbn/lookup", {
         method: "POST",
@@ -601,7 +574,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // 14. 手動新增 Modal
   function openManualAddModal(presetData = null) {
     populateShelfDropdowns();
-    tempLookupBookId = presetData?.id || null;
 
     if (presetData) {
       document.getElementById("manual-title").value = presetData.title || "";
@@ -617,7 +589,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     } else {
       customBookForm.reset();
-      tempLookupBookId = null;
       if (manualIsbnInput) manualIsbnInput.value = "";
     }
 
@@ -662,7 +633,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const data = await resp.json();
         const b = data.book;
-        tempLookupBookId = b.id || null;
 
         document.getElementById("manual-title").value = b.title || "";
         document.getElementById("manual-author").value = b.author_display || "";
@@ -682,7 +652,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 提交手動新增書籍
+  // 提交新增藏書 (單一 API 請求)
   if (btnSubmitManualAdd) {
     btnSubmitManualAdd.addEventListener("click", async () => {
       const title = document.getElementById("manual-title").value.trim();
@@ -706,56 +676,31 @@ document.addEventListener("DOMContentLoaded", () => {
       btnSubmitManualAdd.textContent = "儲存中...";
 
       try {
-        let bookId = tempLookupBookId;
-
-        // 若無 bookId 則先向後端建立全域書籍 Book (後端會自動下載外部封面圖)
-        if (!bookId) {
-          const bookPayload = {
-            title: title,
-            author_display: author || null,
-            publisher: publisher || null,
-            isbn13: isbn13 || null,
-            publication_date: pubdate || null,
-            publication_year: pubdate ? pubdate.substring(0, 4) : null,
-            cover_url: coverUrl || null,
-            category: category || null,
-            description: desc || null,
-            metadata_source: "Manual",
-            uuid: crypto.randomUUID ? crypto.randomUUID() : null
-          };
-
-          const createBookResp = await fetch("/api/books", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(bookPayload)
-          });
-
-          if (!createBookResp.ok) {
-            const errData = await createBookResp.json();
-            throw new Error(errData.detail || "建立書籍資料失敗");
-          }
-
-          const createdBook = await createBookResp.json();
-          bookId = createdBook.id;
-        }
-
-        // 加入個人藏書 MyBook
-        const myBookPayload = {
-          book_id: bookId,
+        const bookPayload = {
+          title: title,
+          author_display: author || null,
+          publisher: publisher || null,
+          isbn13: isbn13 || null,
+          publication_date: pubdate || null,
+          publication_year: pubdate ? pubdate.substring(0, 4) : null,
+          cover_url: coverUrl || null,
+          category: category || null,
+          description: desc || null,
           shelf_id: shelfId ? parseInt(shelfId, 10) : null,
           notes: notes || null,
+          metadata_source: "Manual",
           uuid: crypto.randomUUID ? crypto.randomUUID() : null
         };
 
-        const myBookResp = await fetch("/api/my-books", {
+        const createBookResp = await fetch("/api/books", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(myBookPayload)
+          body: JSON.stringify(bookPayload)
         });
 
-        if (!myBookResp.ok) {
-          const errData = await myBookResp.json();
-          throw new Error(errData.detail || "加入個人藏書失敗");
+        if (!createBookResp.ok) {
+          const errData = await createBookResp.json();
+          throw new Error(errData.detail || "建立書籍資料失敗");
         }
 
         closeManualAddModal();
@@ -773,7 +718,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // 15. 藏書詳細資訊與修改/刪除視窗（含替換封面圖片功能）
   function openBookDetailModal(item) {
     activeBook = item;
-    const book = item.book || {};
     document.getElementById("detail-modal-title").textContent = "藏書詳細資訊";
 
     let shelfOptions = `<option value="">未分類</option>`;
@@ -786,20 +730,20 @@ document.addEventListener("DOMContentLoaded", () => {
     modalBody.innerHTML = `
       <div style="display: flex; gap: 1.25rem;">
         <div style="width: 110px; height: 155px; background: var(--bg-input); border-radius: var(--radius-sm); overflow: hidden; flex-shrink: 0; position: relative;">
-          ${book.cover_url ? `
-            <img id="detail-cover-img" src="${book.cover_url}" style="width: 100%; height: 100%; object-fit: cover;">
+          ${item.cover_url ? `
+            <img id="detail-cover-img" src="${item.cover_url}" style="width: 100%; height: 100%; object-fit: cover;">
           ` : `
             <div id="detail-cover-placeholder" style="display:flex;height:100%;align-items:center;justify-content:center;font-size:2.5rem;">📖</div>
           `}
         </div>
         <div style="flex: 1; display: flex; flex-direction: column; gap: 0.25rem;">
-          <h2 style="font-size: 1.15rem; font-weight: 700;">${book.title}</h2>
-          ${book.subtitle ? `<p style="font-size: 0.85rem; color: var(--text-muted);">${book.subtitle}</p>` : ""}
-          <p style="font-size: 0.9rem; color: var(--text-secondary);">作者：${book.author_display || '未知'}</p>
-          <p style="font-size: 0.85rem; color: var(--text-muted);">出版社：${book.publisher || '未知'}</p>
-          <p style="font-size: 0.85rem; color: var(--text-muted);">出版日期：${book.publication_date || book.publication_year || '未知'}</p>
-          <p style="font-size: 0.85rem; color: var(--text-muted);">ISBN: ${book.isbn13 || book.isbn10 || book.ean || '無'}</p>
-          <p style="font-size: 0.8rem; color: var(--primary); margin-top: 0.25rem;">🕒 加入時間：${formatDateTime(item.created_at || book.created_at)}</p>
+          <h2 style="font-size: 1.15rem; font-weight: 700;">${item.title}</h2>
+          ${item.subtitle ? `<p style="font-size: 0.85rem; color: var(--text-muted);">${item.subtitle}</p>` : ""}
+          <p style="font-size: 0.9rem; color: var(--text-secondary);">作者：${item.author_display || '未知'}</p>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">出版社：${item.publisher || '未知'}</p>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">出版日期：${item.publication_date || item.publication_year || '未知'}</p>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">ISBN: ${item.isbn13 || item.isbn10 || item.ean || '無'}</p>
+          <p style="font-size: 0.8rem; color: var(--primary); margin-top: 0.25rem;">🕒 加入時間：${formatDateTime(item.created_at)}</p>
         </div>
       </div>
 
@@ -818,11 +762,11 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       </div>
 
-      ${book.description ? `
+      ${item.description ? `
         <div class="form-group">
           <label class="form-label">內容大意簡介</label>
           <div style="font-size: 0.85rem; color: var(--text-secondary); max-height: 100px; overflow-y: auto; background: var(--bg-input); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm);">
-            ${book.description}
+            ${item.description}
           </div>
         </div>
       ` : ""}
@@ -855,7 +799,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       try {
-        const resp = await fetch(`/api/books/${book.id}`, {
+        const resp = await fetch(`/api/books/${item.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cover_url: newUrl })
@@ -863,7 +807,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (resp.ok) {
           const updatedBook = await resp.json();
           alert("✅ 封面替換成功！");
-          book.cover_url = updatedBook.cover_url;
+          item.cover_url = updatedBook.cover_url;
           openBookDetailModal(item);
           loadBooksFromServer();
         } else {
@@ -884,14 +828,14 @@ document.addEventListener("DOMContentLoaded", () => {
       formData.append("file", file);
 
       try {
-        const resp = await fetch(`/api/books/${book.id}/cover`, {
+        const resp = await fetch(`/api/books/${item.id}/cover`, {
           method: "POST",
           body: formData
         });
         if (resp.ok) {
           const updatedBook = await resp.json();
           alert("✅ 封面圖檔上傳成功！");
-          book.cover_url = updatedBook.cover_url;
+          item.cover_url = updatedBook.cover_url;
           openBookDetailModal(item);
           loadBooksFromServer();
         } else {
@@ -908,7 +852,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const notesVal = document.getElementById("edit-notes").value;
 
       try {
-        const resp = await fetch(`/api/my-books/${item.id}`, {
+        const resp = await fetch(`/api/books/${item.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -928,9 +872,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 移出藏書
     document.getElementById("btn-delete-book").onclick = async () => {
-      if (!confirm(`確定要將《${book.title}》從個人藏書中移出嗎？`)) return;
+      if (!confirm(`確定要將《${item.title}》從個人藏書中移出嗎？`)) return;
       try {
-        const resp = await fetch(`/api/my-books/${item.id}`, { method: "DELETE" });
+        const resp = await fetch(`/api/books/${item.id}`, { method: "DELETE" });
         if (resp.ok) {
           bookDetailModal.classList.remove("active");
           loadBooksFromServer();

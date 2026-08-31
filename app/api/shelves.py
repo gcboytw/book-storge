@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.core.database import get_db
-from app.models import Shelf, MyBook
+from app.models import Shelf, Book
 from app.schemas import ShelfCreate, ShelfUpdate, ShelfResponse
 
 router = APIRouter(prefix="/api/shelves", tags=["Shelves"])
@@ -14,8 +14,8 @@ def get_shelves(db: Session = Depends(get_db)):
     
     # 統計各書架藏書數量
     counts = dict(
-        db.query(MyBook.shelf_id, func.count(MyBook.id))
-        .group_by(MyBook.shelf_id)
+        db.query(Book.shelf_id, func.count(Book.id))
+        .group_by(Book.shelf_id)
         .all()
     )
 
@@ -60,7 +60,7 @@ def update_shelf(shelf_id: int, payload: ShelfUpdate, db: Session = Depends(get_
     db.commit()
     db.refresh(shelf)
 
-    count = db.query(func.count(MyBook.id)).filter(MyBook.shelf_id == shelf.id).scalar()
+    count = db.query(func.count(Book.id)).filter(Book.shelf_id == shelf.id).scalar()
     resp = ShelfResponse.model_validate(shelf)
     resp.book_count = count or 0
     return resp
@@ -73,7 +73,7 @@ def delete_shelf(shelf_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="找不到指定書架")
 
     # 將原書架下的書本 shelf_id 設為 NULL
-    db.query(MyBook).filter(MyBook.shelf_id == shelf_id).update({"shelf_id": None})
+    db.query(Book).filter(Book.shelf_id == shelf_id).update({"shelf_id": None})
     db.delete(shelf)
     db.commit()
     return None

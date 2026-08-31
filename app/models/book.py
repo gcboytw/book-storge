@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone, timedelta
-from sqlalchemy import Column, Integer, BigInteger, String, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, BigInteger, String, Text, Numeric, Date, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -12,6 +12,8 @@ class Book(Base):
 
     id = Column(Integer().with_variant(BigInteger, "mysql", "mariadb"), primary_key=True, autoincrement=True, index=True)
     uuid = Column(String(36), default=lambda: str(uuid.uuid4()), unique=True, index=True)
+    
+    # 書籍出版資訊
     isbn13 = Column(String(20), nullable=True, index=True)
     isbn10 = Column(String(20), nullable=True, index=True)
     ean = Column(String(30), nullable=True, index=True)
@@ -27,33 +29,20 @@ class Book(Base):
     category = Column(String(255), nullable=True)
     cover_url = Column(String(1000), nullable=True)
     metadata_source = Column(String(50), default="Manual")
-    created_at = Column(DateTime, default=get_taipei_now)
+
+    # 個人藏書管理資訊
+    shelf_id = Column(Integer().with_variant(BigInteger, "mysql", "mariadb"), ForeignKey("shelves.id", ondelete="SET NULL"), nullable=True, index=True)
+    status = Column(String(30), default="unread", index=True)
+    purchase_date = Column(Date, nullable=True)
+    purchase_price = Column(Numeric(10, 2), nullable=True)
+    purchase_place = Column(String(255), nullable=True)
+    condition = Column(String(50), nullable=True)
+    rating = Column(Integer, nullable=True)
+    notes = Column(Text, nullable=True)
+
+    # 系統時間
+    created_at = Column(DateTime, default=get_taipei_now, index=True)
     updated_at = Column(DateTime, default=get_taipei_now, onupdate=get_taipei_now)
 
     # 關聯
-    my_books = relationship("MyBook", back_populates="book", cascade="all, delete-orphan")
-    book_authors = relationship("BookAuthor", back_populates="book", cascade="all, delete-orphan")
-
-class Author(Base):
-    __tablename__ = "authors"
-
-    id = Column(Integer().with_variant(BigInteger, "mysql", "mariadb"), primary_key=True, autoincrement=True, index=True)
-    uuid = Column(String(36), default=lambda: str(uuid.uuid4()), unique=True, index=True)
-    name = Column(String(255), nullable=False)
-    normalized_name = Column(String(255), nullable=True, index=True)
-    created_at = Column(DateTime, default=get_taipei_now)
-    updated_at = Column(DateTime, default=get_taipei_now, onupdate=get_taipei_now)
-
-    book_authors = relationship("BookAuthor", back_populates="author", cascade="all, delete-orphan")
-
-class BookAuthor(Base):
-    __tablename__ = "book_authors"
-
-    id = Column(Integer().with_variant(BigInteger, "mysql", "mariadb"), primary_key=True, autoincrement=True)
-    book_id = Column(Integer().with_variant(BigInteger, "mysql", "mariadb"), ForeignKey("books.id"), nullable=False, index=True)
-    author_id = Column(Integer().with_variant(BigInteger, "mysql", "mariadb"), ForeignKey("authors.id"), nullable=False, index=True)
-    role = Column(String(50), default="作者")
-    sort_order = Column(Integer, default=0)
-
-    book = relationship("Book", back_populates="book_authors")
-    author = relationship("Author", back_populates="book_authors")
+    shelf = relationship("Shelf", back_populates="books")

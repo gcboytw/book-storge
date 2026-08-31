@@ -4,7 +4,7 @@ import urllib.parse
 from pathlib import Path
 from sqlalchemy.orm import Session
 from app.core.config import settings
-from app.models import Book, Author, BookAuthor, Shelf, MyBook
+from app.models import Book, Shelf
 
 class CSVImporterService:
     @staticmethod
@@ -32,9 +32,7 @@ class CSVImporterService:
                     shutil.copy2(file_path, dest_path)
                 
                 web_path = f"/static/covers/{file_path.name}"
-                # 記錄完整檔名
                 cover_map[file_path.name] = web_path
-                # 記錄以 ISBN/條碼開頭的 key
                 prefix = file_path.name.split("-")[0].strip()
                 if prefix:
                     cover_map[prefix] = web_path
@@ -44,7 +42,7 @@ class CSVImporterService:
     @classmethod
     def import_legacy_csv(cls, db: Session, csv_path: Path | None = None) -> dict:
         """
-        將「個人圖書資料庫.csv」404 筆書目匯入資料庫
+        將「個人圖書資料庫.csv」404 筆書目匯入 books 資料表
         """
         if csv_path is None:
             csv_path = settings.MATERIAL_DIR / "個人圖書資料庫.csv"
@@ -63,7 +61,7 @@ class CSVImporterService:
             s.name: s for s in db.query(Shelf).all()
         }
 
-        # 3. 讀取 CSV
+        # 3. 讀取 CSV 匯入
         created_books = 0
         updated_books = 0
         created_shelves = 0
@@ -104,7 +102,6 @@ class CSVImporterService:
 
                 # 尋找書封對應
                 cover_url = cover_raw
-                # 優先檢查本地圖檔
                 if isbn13 and isbn13 in cover_map:
                     cover_url = cover_map[isbn13]
                 elif isbn10 and isbn10 in cover_map:
@@ -112,8 +109,6 @@ class CSVImporterService:
                 elif ean and ean.replace("-", "") in cover_map:
                     cover_url = cover_map[ean.replace("-", "")]
                 elif cover_raw:
-                    # 解析 Ragic 檔名以對應本地檔
-                    # 例: https://ap13.ragic.com/sims/file.jsp?a=gcboytw&f=AsThaw5ggC%404717702093280.jpg
                     unquoted = urllib.parse.unquote(cover_raw)
                     if "@" in unquoted:
                         raw_filename = unquoted.split("@")[-1]
@@ -131,7 +126,7 @@ class CSVImporterService:
                         created_shelves += 1
                     shelf_id = shelves_cache[category].id
 
-                # 檢查 Book 是否已存在（以 isbn13, isbn10, ean 或 title+author 判斷）
+                # 檢查 Book 是否已存在
                 existing_book = None
                 if isbn13:
                     existing_book = db.query(Book).filter(Book.isbn13 == isbn13).first()
@@ -161,29 +156,21 @@ class CSVImporterService:
                         description=summary,
                         category=category,
                         cover_url=cover_url,
+                        shelf_id=shelf_id,
+                        status="unread",
                         metadata_source="CSV_Import"
                     )
                     db.add(book)
-                    db.flush()
                     created_books += 1
                 else:
-                    book = existing_book
                     # 更新可能補足的資料
-                    if not book.cover_url and cover_url:
-                        book.cover_url = cover_url
-                    if not book.description and summary:
-                        book.description = summary
+                    if not existing_book.cover_url and cover_url:
+                        existing_book.cover_url = cover_url
+                    if not existing_book.description and summary:
+                        existing_book.description = summary
+                    if not existing_book.shelf_id and shelf_id:
+                        existing_book.shelf_id = shelf_id
                     updated_books += 1
-
-                # 建立 MyBook 關聯
-                existing_my_book = db.query(MyBook).filter(MyBook.book_id == book.id).first()
-                if not existing_my_book:
-                    my_book = MyBook(
-                        book_id=book.id,
-                        shelf_id=shelf_id,
-                        status="unread"
-                    )
-                    db.add(my_book)
 
         db.commit()
 

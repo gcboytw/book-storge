@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from sqlalchemy.orm import Session, joinedload
 from app.core.config import settings
-from app.models import MyBook, Book, Shelf
+from app.models import Book, Shelf
 
 class ExportService:
     @staticmethod
@@ -18,13 +18,12 @@ class ExportService:
         """
         將藏書資料匯出為 CSV，並連同所有使用的封面圖片打包為 ZIP 檔案。
         """
-        # 1. 查詢所有個人藏書 (含關聯的 Book 與 Shelf)
-        my_books = (
-            db.query(MyBook)
-            .join(MyBook.book)
-            .outerjoin(MyBook.shelf)
-            .options(joinedload(MyBook.book), joinedload(MyBook.shelf))
-            .order_by(MyBook.created_at.desc(), MyBook.id.desc())
+        # 1. 查詢所有藏書 (含關聯的 Shelf)
+        books = (
+            db.query(Book)
+            .outerjoin(Book.shelf)
+            .options(joinedload(Book.shelf))
+            .order_by(Book.created_at.desc(), Book.id.desc())
             .all()
         )
 
@@ -52,7 +51,6 @@ class ExportService:
         ]
 
         csv_buffer = io.StringIO()
-        # 寫入 UTF-8 BOM，確保 Excel 開啟時不會亂碼
         csv_buffer.write("\ufeff")
         writer = csv.writer(csv_buffer)
         writer.writerow(csv_headers)
@@ -61,9 +59,8 @@ class ExportService:
         added_cover_files: set[str] = set()
 
         with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zip_file:
-            for item in my_books:
-                b = item.book
-                shelf_name = item.shelf.name if item.shelf else (b.category or "")
+            for b in books:
+                shelf_name = b.shelf.name if b.shelf else (b.category or "")
                 
                 # 處理書封路徑與圖檔打包
                 cover_csv_value = ""
@@ -72,24 +69,21 @@ class ExportService:
                         filename = b.cover_url.replace("/static/covers/", "").strip()
                         cover_csv_value = f"book_cover/{filename}"
 
-                        # 嘗試尋找本地圖檔並放入 zip
                         cover_path = settings.COVERS_DIR / filename
                         if not cover_path.exists():
-                            # fallback 檢查 material 目錄
                             cover_path = settings.MATERIAL_DIR / "book_cover" / filename
 
                         if cover_path.exists() and filename not in added_cover_files:
                             zip_file.write(cover_path, arcname=f"book_cover/{filename}")
                             added_cover_files.add(filename)
                     else:
-                        # 外部連結或非本地路徑
                         cover_csv_value = b.cover_url
 
-                created_str = item.created_at.strftime("%Y-%m-%d %H:%M:%S") if item.created_at else ""
-                updated_str = item.updated_at.strftime("%Y-%m-%d %H:%M:%S") if item.updated_at else ""
+                created_str = b.created_at.strftime("%Y-%m-%d %H:%M:%S") if b.created_at else ""
+                updated_str = b.updated_at.strftime("%Y-%m-%d %H:%M:%S") if b.updated_at else ""
 
                 writer.writerow([
-                    item.uuid or b.uuid or "",
+                    b.uuid or "",
                     b.title or "",
                     b.subtitle or "",
                     b.author_display or "",
@@ -105,7 +99,7 @@ class ExportService:
                     b.category or "",
                     shelf_name,
                     b.description or "",
-                    item.notes or "",
+                    b.notes or "",
                     created_str,
                     updated_str
                 ])

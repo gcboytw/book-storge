@@ -1,5 +1,5 @@
-from app.models.book import Book, Author, BookAuthor
+from app.models.book import Book
 from app.models.shelf import Shelf
-from app.models.my_book import MyBook
+from app.core.database import Base
 
-__all__ = ["Book", "Author", "BookAuthor", "Shelf", "MyBook"]
+__all__ = ["Base", "Book", "Shelf"]
