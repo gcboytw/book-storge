@@ -1,6 +1,7 @@
 import os
 import re
 import uuid
+import urllib.parse
 import httpx
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -58,23 +59,39 @@ class BookLookupService:
     @classmethod
     def delete_cover_file(cls, cover_url: str | None) -> bool:
         """
-        若 cover_url 是本地檔案 (/static/covers/...)，嘗試自 settings.COVERS_DIR 刪除實體檔案。
+        強韌版書封清理：支援完整網址、相對路徑，並記錄完整排查日誌
         """
         if not cover_url or not isinstance(cover_url, str):
+            print("[CoverDelete] cover_url 為空或非字串，略過實體刪除")
             return False
 
-        if cover_url.startswith("/static/covers/"):
-            filename = cover_url.replace("/static/covers/", "").strip()
-            # 安全性檢查：防止路徑遍歷
-            if filename and "/" not in filename and "\\" not in filename and ".." not in filename:
-                file_path = settings.COVERS_DIR / filename
-                try:
-                    if file_path.is_file():
-                        file_path.unlink(missing_ok=True)
-                        return True
-                except Exception as e:
-                    print(f"[CoverDelete] 刪除本地封面檔案失敗 ({file_path}): {e}")
-        return False
+        try:
+            # 1. 透過 urlparse 排除 domain 與 ?query 參數，取出標準路徑
+            parsed = urllib.parse.urlparse(cover_url)
+            path = parsed.path
+
+            if not path.startswith("/static/covers/"):
+                print(f"[CoverDelete] 非本地書封路徑 ({cover_url})，略過刪除")
+                return False
+
+            filename = Path(path).name
+            if not filename or filename in (".", ".."):
+                print(f"[CoverDelete] 無效檔名 ({filename})，略過刪除")
+                return False
+
+            file_path = settings.COVERS_DIR / filename
+            print(f"[CoverDelete] 準備檢查並刪除封面檔案: {file_path}")
+
+            if not file_path.exists():
+                print(f"[CoverDelete] 磁碟中找不到檔案: {file_path}")
+                return False
+
+            file_path.unlink()
+            print(f"[CoverDelete] ✅ 成功刪除封面檔案: {file_path}")
+            return True
+        except Exception as e:
+            print(f"[CoverDelete] ❌ 刪除本機封面遭遇異常: {type(e).__name__} - {e}")
+            return False
 
     @classmethod
     def fetch_from_sanmin(cls, isbn: str) -> dict | None:

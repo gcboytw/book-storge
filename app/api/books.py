@@ -178,7 +178,9 @@ def delete_book(book_id: int, db: Session = Depends(get_db)):
     # 清理本地書封
     if cover_url:
         other_using = db.query(Book).filter(Book.cover_url == cover_url).first()
-        if not other_using:
+        if other_using:
+            print(f"[CoverDelete] 尚有其他藏書 (ID: {other_using.id}, 書名: {other_using.title}) 使用此封面，保留圖檔")
+        else:
             BookLookupService.delete_cover_file(cover_url)
 
     return None
