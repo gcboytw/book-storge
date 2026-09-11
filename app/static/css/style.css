@@ -1030,13 +1030,32 @@ body {
   max-width: 480px;
 }
 
+.settings-section-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-section-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .sync-status-card {
   background: var(--bg-input);
   border-radius: var(--radius-md);
-  padding: 1rem 1.2rem;
+  padding: 0.85rem 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.65rem;
   border: 1px solid var(--border-color);
   margin-bottom: 1rem;
 }

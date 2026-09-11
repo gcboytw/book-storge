@@ -609,9 +609,34 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 13. 掃描條碼成功回呼
+  // 13. 掃描條碼成功回呼 (支援線上即時查書 + 離線免打字快速入庫)
   async function onBarcodeDetected(isbn) {
     console.log("掃描偵測到 ISBN:", isbn);
+
+    // 若處於離線狀態，直接免打字極速入庫
+    if (!navigator.onLine) {
+      try {
+        const targetUuid = crypto.randomUUID ? crypto.randomUUID() : `book_${Date.now()}`;
+        const bookPayload = {
+          title: `[待補全] ${isbn}`,
+          isbn13: isbn.length === 13 ? isbn : null,
+          isbn10: isbn.length === 10 ? isbn : null,
+          metadata_source: "OfflineScan",
+          uuid: targetUuid
+        };
+        if (window.offlineStorage) {
+          await window.offlineStorage.saveOfflineBook(bookPayload, true);
+          await loadOfflineData();
+        }
+        alert(`⚡ 已離線存入書籍 [${isbn}]！\n回到家中連上區網同步時，NAS 將自動為您爬蟲補齊書名與封面。`);
+      } catch (offErr) {
+        alert("離線存檔異常：" + offErr.message);
+      }
+      closeScanner();
+      return;
+    }
+
+    // 線上環境：優先向伺服器查詢書目
     try {
       const resp = await fetch("/api/isbn/lookup", {
         method: "POST",
@@ -630,9 +655,25 @@ document.addEventListener("DOMContentLoaded", () => {
       closeScanner();
       openManualAddModal(data.book);
     } catch (err) {
-      alert(`查詢失敗：${err.message}`);
+      console.warn("線上查詢無回應，自動降級為離線暫存:", err);
+      try {
+        const targetUuid = crypto.randomUUID ? crypto.randomUUID() : `book_${Date.now()}`;
+        const bookPayload = {
+          title: `[待補全] ${isbn}`,
+          isbn13: isbn.length === 13 ? isbn : null,
+          isbn10: isbn.length === 10 ? isbn : null,
+          metadata_source: "OfflineScan",
+          uuid: targetUuid
+        };
+        if (window.offlineStorage) {
+          await window.offlineStorage.saveOfflineBook(bookPayload, true);
+          await loadOfflineData();
+        }
+        alert(`⚡ 無法連線至伺服器，已將 [${isbn}] 離線存入手機！\n回到區網點擊同步時將自動補齊完整資料。`);
+      } catch (saveErr) {
+        alert("離線存入失敗：" + saveErr.message);
+      }
       closeScanner();
-      openManualAddModal({ isbn13: isbn });
     }
   }
 
@@ -668,7 +709,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (btnCloseManualAdd) btnCloseManualAdd.addEventListener("click", closeManualAddModal);
   if (btnCancelManualAdd) btnCancelManualAdd.addEventListener("click", closeManualAddModal);
 
-  // 手動輸入 ISBN 快速查詢 (三民站內優先)
+  // 手動輸入 ISBN 快速查詢 (三民站內優先，離線時一鍵快存免打字)
   if (btnManualIsbnSearch) {
     btnManualIsbnSearch.addEventListener("click", async () => {
       const isbnVal = (manualIsbnInput.value || "").trim();
@@ -679,6 +720,32 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       const hintEl = document.getElementById("manual-isbn-hint");
+
+      // 離線情境：一鍵極速快存入庫，不關閉鍵盤方便連打
+      if (!navigator.onLine) {
+        hintEl.textContent = `⚡ 正在離線快存 ISBN [${isbnVal}]...`;
+        try {
+          const targetUuid = crypto.randomUUID ? crypto.randomUUID() : `book_${Date.now()}`;
+          const bookPayload = {
+            title: `[待補全] ${isbnVal}`,
+            isbn13: isbnVal.length === 13 ? isbnVal : null,
+            isbn10: isbnVal.length === 10 ? isbnVal : null,
+            metadata_source: "OfflineManual",
+            uuid: targetUuid
+          };
+          if (window.offlineStorage) {
+            await window.offlineStorage.saveOfflineBook(bookPayload, true);
+            await loadOfflineData();
+          }
+          hintEl.textContent = `⚡ 已離線存入 [${isbnVal}]！回到區網同步時將自動補齊。可繼續輸入下一本！`;
+          manualIsbnInput.value = "";
+          manualIsbnInput.focus();
+        } catch (offErr) {
+          hintEl.textContent = `⚠️ 離線儲存失敗：${offErr.message}`;
+        }
+        return;
+      }
+
       hintEl.textContent = `🔍 正在為您查詢 ISBN [${isbnVal}] 的書目資料...`;
       btnManualIsbnSearch.disabled = true;
 
@@ -710,26 +777,33 @@ document.addEventListener("DOMContentLoaded", () => {
 
         hintEl.textContent = `✅ 成功取得書目《${b.title}》！封面已自動下載至伺服器。`;
       } catch (err) {
-        hintEl.textContent = `⚠️ 查詢失敗：${err.message}`;
+        hintEl.textContent = `⚠️ 無法連線至伺服器，已為您填入 ISBN 欄位。您可直接點擊下方「儲存並加入藏書」進行離線儲存。`;
+        document.getElementById("manual-isbn13").value = isbnVal;
       } finally {
         btnManualIsbnSearch.disabled = false;
       }
     });
   }
 
-  // 提交新增藏書 (單一 API 請求)
+  // 提交新增藏書 (單一 API 請求，支援離線免打書名自動補全)
   if (btnSubmitManualAdd) {
     btnSubmitManualAdd.addEventListener("click", async () => {
-      const title = document.getElementById("manual-title").value.trim();
+      let title = document.getElementById("manual-title").value.trim();
+      const isbn13 = document.getElementById("manual-isbn13").value.trim();
+
+      // 若書名為空但填了 ISBN，允許離線以 [待補全] 快速存檔
       if (!title) {
-        alert("請輸入書名！");
-        document.getElementById("manual-title").focus();
-        return;
+        if (isbn13) {
+          title = `[待補全] ${isbn13}`;
+        } else {
+          alert("請輸入書名或 ISBN！");
+          document.getElementById("manual-title").focus();
+          return;
+        }
       }
 
       const author = document.getElementById("manual-author").value.trim();
       const publisher = document.getElementById("manual-publisher").value.trim();
-      const isbn13 = document.getElementById("manual-isbn13").value.trim();
       const pubdate = document.getElementById("manual-pubdate").value.trim();
       const coverUrl = document.getElementById("manual-cover").value.trim();
       const category = document.getElementById("manual-category").value.trim();
@@ -1248,9 +1322,27 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 強制檢查並更新快取（一鍵自清所有舊快取，強破 iOS/Android 死鎖）
+  // 強制檢查並更新快取（附帶雙重連線防手滑安全鎖，防範離線時誤觸導致空白頁面）
   if (btnForceUpdateSw) {
     btnForceUpdateSw.addEventListener("click", async () => {
+      // 1. 第一道防線：檢查瀏覽器連線狀態
+      if (!navigator.onLine) {
+        alert("⚠️ 目前處於離線狀態！\n\n為避免清除快取後無法連回伺服器載入頁面，舊版快取已安全保留。\n請連上家中 Wi-Fi 或 VPN 後再進行快取升級。");
+        return;
+      }
+
+      // 2. 第二道防線：快速探測 NAS 伺服器連通性
+      try {
+        const pingResp = await fetch("/api/ping", { method: "GET" }).catch(() => null);
+        if (!pingResp || !pingResp.ok) {
+          alert("⚠️ 無法連線至家中 NAS 伺服器！\n\n為確保 App 正常運作，舊版快取未被清除。\n請確認手機已連線至同一區網或已開啟 VPN。");
+          return;
+        }
+      } catch (pingErr) {
+        alert("⚠️ NAS 伺服器連線探測異常，已取消更新並保留既有快取。");
+        return;
+      }
+
       const origText = btnForceUpdateSw.innerHTML;
       btnForceUpdateSw.disabled = true;
       btnForceUpdateSw.innerHTML = "⏳ 正在強制清除舊快取並升級...";
@@ -1304,19 +1396,18 @@ document.addEventListener("DOMContentLoaded", () => {
   if (btnExportZip) {
     btnExportZip.addEventListener("click", async () => {
       if (!navigator.onLine) {
-        alert("離線狀態下無法使用伺服器打包匯出功能，請連線後再試。");
+        alert("📦 打包藏書與書封需由家中 NAS 伺服器處理，請連上家中 Wi-Fi 或 VPN 後再進行匯出。");
         return;
       }
 
-      const originalText = btnExportZip.textContent;
+      const originalText = btnExportZip.innerHTML;
       btnExportZip.disabled = true;
-      btnExportZip.textContent = "⏳";
-      btnExportZip.title = "正在打包藏書資料與書封圖片...";
+      btnExportZip.innerHTML = "⏳ 打包中...";
 
       try {
-        const resp = await fetch("/api/export/zip");
-        if (!resp.ok) {
-          throw new Error(`伺服器錯誤 (${resp.status})`);
+        const resp = await fetch("/api/export/zip").catch(() => null);
+        if (!resp || !resp.ok) {
+          throw new Error("無法連線至 NAS 伺服器進行打包，請確認網路連線或稍後再試。");
         }
 
         const blob = await resp.blob();
@@ -1338,11 +1429,10 @@ document.addEventListener("DOMContentLoaded", () => {
         document.body.removeChild(a);
       } catch (err) {
         console.error("匯出失敗:", err);
-        alert("匯出失敗：" + err.message);
+        alert("⚠️ 匯出提示：" + err.message);
       } finally {
         btnExportZip.disabled = false;
-        btnExportZip.textContent = originalText;
-        btnExportZip.title = "匯出藏書 CSV 與封面圖片 (ZIP)";
+        btnExportZip.innerHTML = originalText;
       }
     });
   }

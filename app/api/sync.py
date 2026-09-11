@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.models import Book, Shelf, DeletedRecord
 from app.schemas import SyncUpRequest, SyncUpResponse, SyncDownResponse
-from app.services import CSVImporterService
+from app.services import CSVImporterService, BookLookupService
 
 def get_taipei_now_iso():
     return datetime.now(timezone(timedelta(hours=8))).isoformat()
@@ -22,6 +22,62 @@ def parse_iso_datetime(dt_str: Optional[str]) -> Optional[datetime]:
         return dt
     except Exception:
         return None
+
+def try_enrich_book(book: Book, raw_isbn: Optional[str] = None):
+    """
+    若書籍處於待補全狀態（書名為 [待補全]、未命名書籍或缺少封面/作者），
+    且具備有效 ISBN，自動調用外部爬蟲鏈（三民/Google/OpenLibrary）補全資料並下載封面。
+    """
+    isbn_to_lookup = raw_isbn or book.isbn13 or book.isbn10 or book.ean
+    if not isbn_to_lookup:
+        return
+
+    # 判斷是否需要補全
+    needs_enrichment = (
+        not book.title
+        or book.title.startswith("[待補全]")
+        or book.title.startswith("ISBN:")
+        or book.title == "未命名書籍"
+        or not book.cover_url
+        or not book.author_display
+    )
+
+    if not needs_enrichment:
+        return
+
+    clean_isbn = BookLookupService.clean_isbn(isbn_to_lookup)
+    if not clean_isbn:
+        return
+
+    try:
+        print(f"[SyncAutoEnrich] 正在背景為離線入庫書籍 [{clean_isbn}] 查詢三民/外部書目資料...")
+        external_data = BookLookupService.lookup(clean_isbn)
+        if external_data:
+            if external_data.get("title"):
+                book.title = external_data["title"]
+            if external_data.get("author_display"):
+                book.author_display = external_data["author_display"]
+            if external_data.get("publisher"):
+                book.publisher = external_data["publisher"]
+            if external_data.get("publication_date"):
+                book.publication_date = external_data["publication_date"]
+            if external_data.get("description"):
+                book.description = external_data["description"]
+            if external_data.get("category"):
+                book.category = external_data["category"]
+            if external_data.get("cover_url"):
+                if external_data["cover_url"].startswith("http"):
+                    local_cover = BookLookupService.download_and_save_cover(
+                        external_data["cover_url"], clean_isbn
+                    )
+                    book.cover_url = local_cover
+                else:
+                    book.cover_url = external_data["cover_url"]
+            # 更新時間以確保 pull (down) 時會被當作最新異動拉回手機
+            book.updated_at = datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
+            print(f"[SyncAutoEnrich] ✅ 已成功補全書籍 [{clean_isbn}]：《{book.title}》")
+    except Exception as enrich_err:
+        print(f"[SyncAutoEnrich] ⚠️ 補全書籍 [{clean_isbn}] 過程異常: {enrich_err}")
 
 def serialize_book_for_sync(b: Book) -> dict:
     return {
@@ -141,6 +197,7 @@ def sync_push_changes(payload: SyncUpRequest, db: Session = Depends(get_db)):
                     if "shelf_id" in data:
                         existing_book.shelf_id = data["shelf_id"]
                     existing_book.updated_at = client_dt
+                try_enrich_book(existing_book, data.get("isbn13") or data.get("isbn10"))
                 processed += 1
             else:
                 # 建立新紀錄
@@ -165,6 +222,7 @@ def sync_push_changes(payload: SyncUpRequest, db: Session = Depends(get_db)):
                     updated_at=client_dt
                 )
                 db.add(new_book)
+                try_enrich_book(new_book, data.get("isbn13") or data.get("isbn10"))
                 processed += 1
 
     db.commit()
