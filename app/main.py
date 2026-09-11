@@ -44,9 +44,25 @@ def health_check():
         "app_env": settings.APP_ENV
     }
 
+@app.get("/api/ping", tags=["Health"])
+def ping():
+    return {"status": "ok", "message": "pong"}
+
 # 掛載靜態資源 (PWA 前端 + 本地書封圖檔)
 if settings.STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(settings.STATIC_DIR)), name="static")
+
+@app.get("/sw.js")
+def serve_sw():
+    """提供根目錄 Service Worker，確保 Scope 可管轄至整個網站 '/'"""
+    sw_path = settings.STATIC_DIR / "sw.js"
+    if sw_path.exists():
+        return FileResponse(
+            str(sw_path),
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-cache"}
+        )
+    return {"error": "sw.js not found"}
 
 @app.get("/")
 def serve_index():
@@ -55,3 +71,4 @@ def serve_index():
     if index_path.exists():
         return FileResponse(str(index_path))
     return {"message": "Book Storage API running. Please place static files in app/static."}
+

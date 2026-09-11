@@ -1,12 +1,17 @@
+from pathlib import Path
 from typing import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
-from app.core.config import settings
+from app.core.config import settings, BASE_DIR
 
 # 根據 SQLite 或 MariaDB 自動設定 engine 參數
 connect_args = {}
 if settings.DB_TYPE.lower() == "sqlite":
     connect_args["check_same_thread"] = False
+    db_file_path = Path(settings.SQLITE_DB_PATH)
+    if not db_file_path.is_absolute():
+        db_file_path = (BASE_DIR / db_file_path).resolve()
+    db_file_path.parent.mkdir(parents=True, exist_ok=True)
 
 engine = create_engine(
     settings.database_url,

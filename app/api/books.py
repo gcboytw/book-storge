@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
 from app.core.config import settings
 from app.core.database import get_db
-from app.models import Book, Shelf
+from app.models import Book, Shelf, DeletedRecord
 from app.schemas import BookCreate, BookUpdate, BookResponse, ISBNLookupRequest
 from app.services import BookLookupService
 
@@ -172,6 +172,10 @@ def delete_book(book_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="藏書紀錄不存在")
 
     cover_url = book.cover_url
+    deleted_uuid = book.uuid
+    if deleted_uuid:
+        db.add(DeletedRecord(uuid=deleted_uuid))
+
     db.delete(book)
     db.commit()
 

@@ -31,6 +31,13 @@ class ISBNScanner {
   async start() {
     if (this.isScanning) return;
 
+    // 檢查瀏覽器安全上下文與相機支援 (非 HTTPS 環境下 mediaDevices 會被瀏覽器直接禁用)
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error(
+        "瀏覽器安全限制：非 HTTPS 加密連線下無法取用手機鏡頭！\n請使用右下角「✍️ 手動輸入 ISBN」，或為 NAS 設定 HTTPS 連線。"
+      );
+    }
+
     try {
       const constraints = {
         video: {
@@ -53,7 +60,7 @@ class ISBNScanner {
       throw new Error(
         err.name === "NotAllowedError"
           ? "請允許相機權限以使用條碼掃描功能"
-          : "無法啟動相機，請確認設備有可用鏡頭"
+          : (err.message || "無法啟動相機，請確認設備有可用鏡頭")
       );
     }
   }
@@ -106,3 +113,4 @@ class ISBNScanner {
 }
 
 window.ISBNScanner = ISBNScanner;
+window.BarcodeScanner = ISBNScanner; // 相容別名供 app.js 呼叫

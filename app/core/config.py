@@ -47,7 +47,7 @@ class Settings(BaseSettings):
             # 預設 SQLite 本機資料庫
             db_path = Path(self.SQLITE_DB_PATH)
             if not db_path.is_absolute():
-                db_path = BASE_DIR / db_path
-            return f"sqlite:///{db_path}"
+                db_path = (BASE_DIR / db_path).resolve()
+            return f"sqlite:///{db_path.as_posix()}"
 
 settings = Settings()

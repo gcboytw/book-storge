@@ -36,6 +36,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnSubmitManualAdd = document.getElementById("btn-submit-manual-add");
   const customBookForm = document.getElementById("custom-book-form");
 
+  // 同步狀態與版本管理 Modal 元素
+  const btnOpenSync = document.getElementById("btn-open-sync");
+  const syncModal = document.getElementById("sync-modal");
+  const btnCloseSync = document.getElementById("btn-close-sync");
+  const btnTriggerSync = document.getElementById("btn-trigger-sync");
+  const btnForceUpdateSw = document.getElementById("btn-force-update-sw");
+  const syncSwVersion = document.getElementById("sync-sw-version");
+  const syncLocalCount = document.getElementById("sync-local-count");
+  const syncPendingCount = document.getElementById("sync-pending-count");
+  const syncLastTime = document.getElementById("sync-last-time");
+  const syncCoverCount = document.getElementById("sync-cover-count");
+  let activeSwVersionName = "";
+
   // 狀態管理
   const PAGE_SIZE = 24; // 每頁 24 本書籍
   let currentPage = 1;
@@ -104,7 +117,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   window.addEventListener("online", () => {
     updateOnlineStatus();
-    loadBooksFromServer();
   });
   window.addEventListener("offline", updateOnlineStatus);
   updateOnlineStatus();
@@ -121,12 +133,52 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 5. 載入資料 (優先線上立即渲染，離線由 IndexedDB 備援)
-  async function loadBooksFromServer() {
-    if (!navigator.onLine) {
-      return loadOfflineData();
-    }
+  // 5. 離線優先資料載入 (Offline-First)
+  // 5.1 讀取本地 IndexedDB 秒開畫面 (0 network delay)
+  async function loadOfflineData() {
+    if (!window.offlineStorage) return [];
+    try {
+      const offlineBooks = await window.offlineStorage.getAllBooks();
+      const meta = await window.offlineStorage.getSyncMeta();
+      if (meta && meta.shelves) {
+        shelvesList = meta.shelves;
+        populateShelfDropdowns();
+      }
 
+      // 轉為統一的清單結構
+      const formatted = offlineBooks.map((item) => ({
+        id: item.id,
+        uuid: item.uuid,
+        title: item.title,
+        subtitle: item.subtitle,
+        author_display: item.author || item.author_display,
+        publisher: item.publisher,
+        publication_date: item.publication_date,
+        isbn13: item.isbn13,
+        isbn10: item.isbn10,
+        ean: item.ean,
+        cover_url: item.cover_url,
+        description: item.description,
+        category: item.category,
+        shelf_id: item.shelf_id,
+        shelf: item.shelf_name ? { id: item.shelf_id, name: item.shelf_name } : null,
+        notes: item.notes,
+        created_at: item.created_at || null,
+        updated_at: item.updated_at || null
+      }));
+
+      cachedBooks = sortBooksByCreatedAtDesc(formatted);
+      renderFilterTabs();
+      applyFiltersAndRender();
+      return cachedBooks;
+    } catch (err) {
+      console.warn("讀取 IndexedDB 離線快取失敗:", err);
+      return [];
+    }
+  }
+
+  // 5.2 與中央伺服器主動同步資料 (供手動同步或本地初次為空時使用)
+  async function loadBooksFromServer() {
     try {
       // 1. 同步書架
       const shelfResp = await fetch("/api/shelves");
@@ -146,7 +198,7 @@ document.addEventListener("DOMContentLoaded", () => {
         offlineBanner.classList.remove("active");
       }
 
-      // 3. 背景將全量資料快取至 IndexedDB (不阻塞畫面)
+      // 3. 背景將全量資料快取至 IndexedDB
       try {
         const dumpResp = await fetch("/api/sync/dump");
         if (dumpResp.ok) {
@@ -158,49 +210,30 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (cacheErr) {
         console.warn("背景 IndexedDB 快取寫入提示:", cacheErr);
       }
+      return true;
     } catch (err) {
-      console.warn("無法連線至中央伺服器，切換為離線資料庫:", err);
-      loadOfflineData();
+      console.warn("連線至中央伺服器失敗:", err);
+      throw err;
     }
   }
 
-  async function loadOfflineData() {
-    if (!navigator.onLine) {
-      offlineBanner.classList.add("active");
-      offlineBanner.textContent = "⚡ 目前處於離線狀態：使用本地 IndexedDB 秒查個人藏書";
+  // 5.3 應用程式啟動生命週期：先讀本地秒開，為空才嘗試遠端
+  async function initAppLifecycle() {
+    const localBooks = await loadOfflineData();
+    if (localBooks && localBooks.length > 0) {
+      // 本地有資料，瞬間完成渲染，不主動發送 API 探測 NAS，避免戶外連線卡頓
+      console.log(`⚡ 離線秒開完成：載入本地快取藏書共 ${localBooks.length} 本`);
+    } else {
+      // 本地完全無資料 (首次在該手機安裝使用)，嘗試連線 NAS 初始化
+      if (navigator.onLine) {
+        try {
+          await loadBooksFromServer();
+        } catch (e) {
+          offlineBanner.classList.add("active");
+          offlineBanner.textContent = "⚡ 目前處於離線狀態且本地尚無快取，請於連上家中 Wi-Fi 或 VPN 後點擊右上角「🔄」進行同步。";
+        }
+      }
     }
-    const offlineBooks = await window.offlineStorage.getAllBooks();
-    const meta = await window.offlineStorage.getSyncMeta();
-    if (meta && meta.shelves) {
-      shelvesList = meta.shelves;
-      populateShelfDropdowns();
-    }
-    
-    // 轉為統一的清單結構
-    const formatted = offlineBooks.map((item) => ({
-      id: item.id,
-      uuid: item.uuid,
-      title: item.title,
-      subtitle: item.subtitle,
-      author_display: item.author || item.author_display,
-      publisher: item.publisher,
-      publication_date: item.publication_date,
-      isbn13: item.isbn13,
-      isbn10: item.isbn10,
-      ean: item.ean,
-      cover_url: item.cover_url,
-      description: item.description,
-      category: item.category,
-      shelf_id: item.shelf_id,
-      shelf: item.shelf_name ? { id: item.shelf_id, name: item.shelf_name } : null,
-      notes: item.notes,
-      created_at: item.created_at || null,
-      updated_at: item.updated_at || null
-    }));
-
-    cachedBooks = sortBooksByCreatedAtDesc(formatted);
-    renderFilterTabs();
-    applyFiltersAndRender();
   }
 
   // 6. 書架與分類標籤渲染 (桌面橫向膠囊 + 手機底部抽屜選單)
@@ -543,9 +576,20 @@ document.addEventListener("DOMContentLoaded", () => {
   function openScanner() {
     scanModal.classList.add("active");
     if (!scannerInstance) {
-      scannerInstance = new BarcodeScanner("scanner-video", onBarcodeDetected);
+      const ScannerClass = window.ISBNScanner || window.BarcodeScanner;
+      if (ScannerClass) {
+        scannerInstance = new ScannerClass("scanner-video", onBarcodeDetected);
+      }
     }
-    scannerInstance.start();
+    if (scannerInstance) {
+      scannerInstance.start().catch((err) => {
+        alert(err.message || "無法啟動相機鏡頭");
+        closeScanner();
+      });
+    } else {
+      alert("條碼掃描模組尚未就緒，請使用右下角「✍️ 手動輸入 ISBN」！");
+      closeScanner();
+    }
   }
 
   function closeScanner() {
@@ -697,6 +741,7 @@ document.addEventListener("DOMContentLoaded", () => {
       btnSubmitManualAdd.textContent = "儲存中...";
 
       try {
+        const targetUuid = crypto.randomUUID ? crypto.randomUUID() : `book_${Date.now()}`;
         const bookPayload = {
           title: title,
           author_display: author || null,
@@ -710,23 +755,41 @@ document.addEventListener("DOMContentLoaded", () => {
           shelf_id: shelfId ? parseInt(shelfId, 10) : null,
           notes: notes || null,
           metadata_source: "Manual",
-          uuid: crypto.randomUUID ? crypto.randomUUID() : null
+          uuid: targetUuid
         };
 
-        const createBookResp = await fetch("/api/books", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(bookPayload)
-        });
+        let serverSaved = false;
+        if (navigator.onLine) {
+          try {
+            const createBookResp = await fetch("/api/books", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(bookPayload)
+            });
+            if (createBookResp.ok) {
+              const savedItem = await createBookResp.json();
+              if (window.offlineStorage) {
+                await window.offlineStorage.saveOfflineBook({ ...bookPayload, id: savedItem.id, uuid: savedItem.uuid }, false);
+                await window.offlineStorage.markAsSynced([savedItem.uuid]);
+              }
+              serverSaved = true;
+            }
+          } catch (netErr) {
+            console.warn("線上新增伺服器無回應，自動降級為離線新增:", netErr);
+          }
+        }
 
-        if (!createBookResp.ok) {
-          const errData = await createBookResp.json();
-          throw new Error(errData.detail || "建立書籍資料失敗");
+        if (!serverSaved && window.offlineStorage) {
+          await window.offlineStorage.saveOfflineBook(bookPayload, true);
         }
 
         closeManualAddModal();
-        alert(`🎉《${title}》已成功加入您的藏書庫！`);
-        await loadBooksFromServer();
+        await loadOfflineData();
+        if (serverSaved) {
+          alert(`🎉《${title}》已成功加入您的藏書庫！`);
+        } else {
+          alert(`⚡《${title}》已儲存至手機本地（待連線時點擊「🔄」同步至 NAS）。`);
+        }
       } catch (err) {
         alert(`❌ 新增失敗：${err.message}`);
       } finally {
@@ -871,37 +934,71 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-save-edit").onclick = async () => {
       const shelfVal = document.getElementById("edit-shelf").value;
       const notesVal = document.getElementById("edit-notes").value;
+      const updatedFields = {
+        ...item,
+        shelf_id: shelfVal ? parseInt(shelfVal, 10) : null,
+        notes: notesVal
+      };
 
-      try {
-        const resp = await fetch(`/api/books/${item.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            shelf_id: shelfVal ? parseInt(shelfVal, 10) : null,
-            notes: notesVal
-          })
-        });
-
-        if (resp.ok) {
-          bookDetailModal.classList.remove("active");
-          loadBooksFromServer();
+      let serverUpdated = false;
+      if (navigator.onLine && item.id) {
+        try {
+          const resp = await fetch(`/api/books/${item.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              shelf_id: updatedFields.shelf_id,
+              notes: updatedFields.notes
+            })
+          });
+          if (resp.ok) {
+            serverUpdated = true;
+          }
+        } catch (netErr) {
+          console.warn("線上更新失敗，轉為離線更新隊列:", netErr);
         }
-      } catch (err) {
-        alert("更新失敗：" + err.message);
       }
+
+      if (window.offlineStorage) {
+        await window.offlineStorage.saveOfflineBook(updatedFields, false);
+        if (serverUpdated) {
+          await window.offlineStorage.markAsSynced([item.uuid]);
+        }
+      }
+
+      bookDetailModal.classList.remove("active");
+      await loadOfflineData();
     };
 
     // 移出藏書
     document.getElementById("btn-delete-book").onclick = async () => {
       if (!confirm(`確定要將《${item.title}》從個人藏書中移出嗎？`)) return;
-      try {
-        const resp = await fetch(`/api/books/${item.id}`, { method: "DELETE" });
-        if (resp.ok) {
-          bookDetailModal.classList.remove("active");
-          loadBooksFromServer();
+
+      let serverDeleted = false;
+      if (navigator.onLine && item.id) {
+        try {
+          const resp = await fetch(`/api/books/${item.id}`, { method: "DELETE" });
+          if (resp.ok) {
+            serverDeleted = true;
+          }
+        } catch (netErr) {
+          console.warn("線上刪除失敗，轉為離線軟刪除隊列:", netErr);
         }
-      } catch (err) {
-        alert("刪除失敗：" + err.message);
+      }
+
+      if (window.offlineStorage) {
+        if (serverDeleted) {
+          const tx = window.offlineStorage.db.transaction("cached_books", "readwrite");
+          tx.objectStore("cached_books").delete(item.uuid);
+        } else {
+          await window.offlineStorage.deleteOfflineBook(item.uuid);
+        }
+      }
+
+      bookDetailModal.classList.remove("active");
+      await loadOfflineData();
+      if (!serverDeleted) {
+        alert(`已從本地移出《${item.title}》，連上家中 Wi-Fi 或 VPN 點擊「🔄」時將自動自 NAS 刪除。`);
       }
     };
 
@@ -914,14 +1011,296 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 16. 註冊 Service Worker
+  // 16. 註冊 Service Worker 與版號顯示控制
+  const swBadge = document.getElementById("sw-version-badge");
+
+  function requestSwVersion(worker) {
+    if (!worker) return;
+    const messageChannel = new MessageChannel();
+    messageChannel.port1.onmessage = (event) => {
+      if (event.data && event.data.version) {
+        const fullVer = event.data.version;
+        activeSwVersionName = fullVer;
+        const shortMatch = fullVer.match(/-(v[\d.]+)$/);
+        if (swBadge) {
+          swBadge.textContent = shortMatch ? shortMatch[1] : fullVer;
+          swBadge.title = `當前 SW 快取版本：${fullVer}（點擊開啟同步管理面板）`;
+        }
+        if (syncSwVersion) {
+          syncSwVersion.textContent = fullVer;
+        }
+      }
+    };
+    worker.postMessage({ type: "GET_VERSION" }, [messageChannel.port2]);
+  }
+
+  // 直接讀取 /sw.js 檔案內容解析 CACHE_NAME（供非 HTTPS 區網環境或備援使用，支援 localStorage 持久化記憶）
+  async function fetchSwFileVersion() {
+    // 1. 先從 localStorage 秒讀上次記住的版號（確保離線時 0 秒顯示，版號永不消失）
+    const storedVer = localStorage.getItem("cached_sw_version");
+    if (storedVer && !activeSwVersionName) {
+      activeSwVersionName = storedVer;
+      const shortMatch = storedVer.match(/-(v[\d.]+)$/);
+      if (swBadge) {
+        swBadge.textContent = shortMatch ? shortMatch[1] : storedVer;
+        swBadge.title = `SW 版號（本地記憶）：${storedVer}（點擊開啟同步管理面板）`;
+      }
+      if (syncSwVersion) {
+        syncSwVersion.textContent = storedVer;
+      }
+    }
+
+    // 2. 若處於連線狀態，嘗試讀取伺服器最新檔案並更新本地記憶
+    try {
+      let resp = await fetch("/sw.js?t=" + Date.now());
+      if (!resp.ok) {
+        resp = await fetch("/static/sw.js?t=" + Date.now());
+      }
+      if (resp && resp.ok) {
+        const text = await resp.text();
+        const match = text.match(/CACHE_NAME\s*=\s*["']([^"']+)["']/);
+        if (match && match[1]) {
+          const fullVer = match[1];
+          activeSwVersionName = fullVer;
+          localStorage.setItem("cached_sw_version", fullVer); // 永久保存最新版號至手機本地
+
+          const shortMatch = fullVer.match(/-(v[\d.]+)$/);
+          if (swBadge) {
+            swBadge.textContent = shortMatch ? shortMatch[1] : fullVer;
+            swBadge.title = `SW 檔案版號：${fullVer}（點擊開啟同步管理面板）`;
+          }
+          if (syncSwVersion) {
+            syncSwVersion.textContent = fullVer;
+          }
+          return fullVer;
+        }
+      }
+    } catch (e) {
+      // 離線狀態連線失敗完全正常，靜默使用 storedVer
+      console.warn("離線或讀取 sw.js 檔案版號失敗:", e);
+    }
+    return storedVer || null;
+  }
+
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/static/sw.js").catch((err) => {
-      console.warn("ServiceWorker 註冊失敗:", err);
+    navigator.serviceWorker.register("/sw.js").then((reg) => {
+      if (reg.active) {
+        requestSwVersion(reg.active);
+      }
+      if (reg.installing) {
+        reg.installing.addEventListener("statechange", (e) => {
+          if (e.target.state === "activated") {
+            requestSwVersion(navigator.serviceWorker.controller || reg.active);
+          }
+        });
+      }
+    }).catch((err) => {
+      console.warn("ServiceWorker 註冊失敗，嘗試降級讀取檔案版號:", err);
+      fetchSwFileVersion();
+    });
+
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (navigator.serviceWorker.controller) {
+        requestSwVersion(navigator.serviceWorker.controller);
+      }
+    });
+
+    // 啟動 1.5 秒若 SW 未回應版號，自動讀取檔案補齊
+    setTimeout(() => {
+      if (!activeSwVersionName) {
+        fetchSwFileVersion();
+      }
+    }, 1500);
+  } else {
+    // 非安全連線 (如 HTTP 區網 IP) 降級直接讀取檔案中的 CACHE_NAME
+    fetchSwFileVersion();
+  }
+
+  // 17. 同步狀態與快取管理控制面板 (Sync Modal)
+  async function updateSyncModalInfo() {
+    if (syncSwVersion) {
+      syncSwVersion.textContent = activeSwVersionName || "讀取中...";
+      if (!activeSwVersionName) {
+        fetchSwFileVersion();
+      }
+    }
+    if (syncLocalCount) {
+      syncLocalCount.textContent = `${cachedBooks.length.toLocaleString()} 本`;
+    }
+    if (syncPendingCount && window.offlineStorage) {
+      try {
+        const pendingCount = await window.offlineStorage.getPendingCount();
+        if (pendingCount > 0) {
+          syncPendingCount.textContent = `${pendingCount} 筆待上傳異動 ⚠️`;
+          syncPendingCount.style.color = "var(--warning)";
+        } else {
+          syncPendingCount.textContent = "0 筆（所有變更已同步）";
+          syncPendingCount.style.color = "var(--text-primary)";
+        }
+      } catch (e) {
+        syncPendingCount.textContent = "0 筆";
+      }
+    }
+    if (syncLastTime && window.offlineStorage) {
+      try {
+        const meta = await window.offlineStorage.getSyncMeta();
+        if (meta && meta.timestamp) {
+          const d = new Date(meta.timestamp);
+          syncLastTime.textContent = d.toLocaleString("zh-TW", { hour12: false });
+        } else {
+          syncLastTime.textContent = "尚未記錄（可點擊下方立即同步）";
+        }
+      } catch (e) {
+        syncLastTime.textContent = "讀取失敗";
+      }
+    }
+    if (syncCoverCount && window.offlineStorage) {
+      try {
+        const coverStats = await window.offlineStorage.getCoverCacheStats();
+        if (coverStats.total > 0 && coverStats.cached >= coverStats.total) {
+          syncCoverCount.textContent = `✅ 100% 全量快取 (${coverStats.cached} 張)`;
+          syncCoverCount.style.color = "var(--success)";
+        } else if (coverStats.total > 0) {
+          syncCoverCount.textContent = `⚡ 已離線 ${coverStats.cached} / ${coverStats.total} 張`;
+          syncCoverCount.style.color = "var(--primary)";
+        } else {
+          syncCoverCount.textContent = "無封面需快取";
+        }
+      } catch (e) {
+        syncCoverCount.textContent = "未檢測";
+      }
+    }
+  }
+
+  const openSyncModal = () => {
+    updateSyncModalInfo();
+    fetchSwFileVersion(); // 打開面板時背景確認最新版號
+    if (syncModal) syncModal.classList.add("active");
+  };
+
+  const closeSyncModal = () => {
+    if (syncModal) syncModal.classList.remove("active");
+  };
+
+  if (btnOpenSync) btnOpenSync.addEventListener("click", openSyncModal);
+  if (swBadge) swBadge.addEventListener("click", openSyncModal);
+  if (btnCloseSync) btnCloseSync.addEventListener("click", closeSyncModal);
+
+  if (syncModal) {
+    syncModal.addEventListener("click", (e) => {
+      if (e.target === syncModal) closeSyncModal();
     });
   }
 
-  // 17. 匯出藏書 CSV + 書封 ZIP 打包
+  // 手動觸發與 NAS 雙向同步 (Push -> Pull -> Merge -> Prefetch All Covers)
+  if (btnTriggerSync) {
+    btnTriggerSync.addEventListener("click", async () => {
+      const origText = btnTriggerSync.innerHTML;
+      btnTriggerSync.disabled = true;
+      btnTriggerSync.innerHTML = "⏳ 正在探測 NAS 連線...";
+
+      try {
+        if (!window.offlineStorage) {
+          throw new Error("離線資料庫尚未就緒");
+        }
+
+        btnTriggerSync.innerHTML = "🔄 正在執行手動雙向同步...";
+        const syncResult = await window.offlineStorage.syncTwoWay();
+
+        // 重新讀取本地最新資料庫，並同步檢查最新版號
+        await loadOfflineData();
+        await fetchSwFileVersion();
+        await updateSyncModalInfo();
+
+        // 方案 A：在背景執行書封全量預載並更新狀態（防禦性容錯：若舊快取尚未就緒則平滑略過）
+        const hasPrefetch = typeof window.offlineStorage?.prefetchCovers === "function";
+        if (hasPrefetch) {
+          if (syncCoverCount) syncCoverCount.textContent = "⏳ 正在背景預載書封...";
+          window.offlineStorage.prefetchCovers((done, total) => {
+            if (syncCoverCount) {
+              syncCoverCount.textContent = `⏳ 正在預載 ${done} / ${total} 張...`;
+            }
+          }).then(() => {
+            updateSyncModalInfo();
+          }).catch((coverErr) => {
+            console.warn("書封背景預載過程提示:", coverErr);
+          });
+        } else {
+          console.warn("離線模組尚未包含 prefetchCovers 方法，已平滑略過書封預載。");
+        }
+
+        let msg = `✅ 雙向同步完成！\n` +
+          `• 上傳本地異動：${syncResult.pushed_count} 筆\n` +
+          `• 拉取雲端更新：${syncResult.pulled_updates} 筆\n` +
+          `• 雲端同步刪除：${syncResult.pulled_deleted} 筆\n` +
+          `目前手機本地藏書共 ${cachedBooks.length.toLocaleString()} 本。`;
+
+        if (hasPrefetch) {
+          msg += `\n已在背景為您啟動【全量書封離線預載】（出門開飛航模式也能秒看所有封面）！`;
+        }
+        alert(msg);
+      } catch (err) {
+        alert("⚠️ 同步失敗：" + err.message);
+      } finally {
+        btnTriggerSync.disabled = false;
+        btnTriggerSync.innerHTML = origText;
+      }
+    });
+  }
+
+  // 強制檢查並更新快取（一鍵自清所有舊快取，強破 iOS/Android 死鎖）
+  if (btnForceUpdateSw) {
+    btnForceUpdateSw.addEventListener("click", async () => {
+      const origText = btnForceUpdateSw.innerHTML;
+      btnForceUpdateSw.disabled = true;
+      btnForceUpdateSw.innerHTML = "⏳ 正在強制清除舊快取並升級...";
+
+      try {
+        // 1. 清除本地記錄的舊版號
+        localStorage.removeItem("cached_sw_version");
+        activeSwVersionName = "";
+
+        // 2. 清除所有 Cache Storage 靜態快取
+        if ("caches" in window) {
+          try {
+            const cacheKeys = await caches.keys();
+            await Promise.all(cacheKeys.map((k) => caches.delete(k)));
+            console.log("✅ 已清空本地 Cache Storage");
+          } catch (cErr) {
+            console.warn("清空 Cache Storage 提示:", cErr);
+          }
+        }
+
+        // 3. 註銷舊版 Service Worker
+        if ("serviceWorker" in navigator) {
+          try {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (const reg of registrations) {
+              await reg.unregister();
+            }
+            console.log("✅ 已註銷舊版 Service Worker");
+          } catch (swErr) {
+            console.warn("註銷 ServiceWorker 提示:", swErr);
+          }
+        }
+
+        // 4. 強制穿透快取向伺服器拉取最新版號
+        const newVer = await fetchSwFileVersion();
+        alert(`✅ 快取已徹底清除！\n已取得最新伺服器版本：${newVer || "最新版"}\n即將重新載入頁面！`);
+
+        // 5. 帶防快取時間戳重載頁面，徹底打破 iOS WebKit 磁碟快取
+        window.location.href = window.location.origin + window.location.pathname + "?_t=" + Date.now();
+      } catch (e) {
+        console.error("清除快取重載異常:", e);
+        window.location.reload();
+      } finally {
+        btnForceUpdateSw.disabled = false;
+        btnForceUpdateSw.innerHTML = origText;
+      }
+    });
+  }
+
+  // 18. 匯出藏書 CSV + 書封 ZIP 打包
   if (btnExportZip) {
     btnExportZip.addEventListener("click", async () => {
       if (!navigator.onLine) {
@@ -968,6 +1347,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // 初始載入
-  loadBooksFromServer();
+  // 19. 應用程式啟動生命週期：優先載入本地離線資料 (10ms 秒開)
+  initAppLifecycle();
 });

@@ -11,11 +11,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="個人藏書庫">
   <link rel="manifest" href="/static/manifest.json">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
+  <link rel="icon" type="image/png" href="/static/index-logo.png">
+  <link rel="apple-touch-icon" href="/static/index-logo.png">
 
   <!-- Stylesheet -->
-  <link rel="stylesheet" href="/static/css/style.css?v=6">
+  <link rel="stylesheet" href="/static/css/style.css?v=7">
 </head>
 
 <body>
@@ -24,10 +24,12 @@
   <header class="app-header">
     <div class="header-container">
       <div class="brand">
-        <span class="brand-icon">📚</span>
+        <img src="/static/index-logo.png" alt="Logo" class="brand-logo-img">
         <span>藏書庫</span>
+        <span id="sw-version-badge" class="sw-version-badge" title="Service Worker 快取版本（點擊檢查更新）">v8</span>
       </div>
       <div class="header-actions">
+        <button id="btn-open-sync" class="btn-icon" title="🔄 同步狀態與版本管理">🔄</button>
         <button id="btn-export-zip" class="btn-icon" title="匯出藏書 CSV 與封面圖片 (ZIP)">📥</button>
         <button id="theme-toggle" class="btn-icon" title="切換深淺色主題">🌙</button>
       </div>
@@ -233,14 +235,63 @@
     </div>
   </div>
 
+  <!-- Sync & Version Modal -->
+  <div id="sync-modal" class="modal-overlay">
+    <div class="modal-card sync-modal-card">
+      <div class="modal-header">
+        <h3 class="modal-title">🔄 同步狀態與快取管理</h3>
+        <button id="btn-close-sync" class="btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- 狀態資訊卡 -->
+        <div class="sync-status-card">
+          <div class="sync-status-row">
+            <span class="sync-label">SW 快取版號</span>
+            <span id="sync-sw-version" class="sync-value-pill">載入中...</span>
+          </div>
+          <div class="sync-status-row">
+            <span class="sync-label">本地快取藏書</span>
+            <span id="sync-local-count" class="sync-value">0 本</span>
+          </div>
+          <div class="sync-status-row">
+            <span class="sync-label">待同步異動</span>
+            <span id="sync-pending-count" class="sync-value">0 筆（所有變更已同步）</span>
+          </div>
+          <div class="sync-status-row">
+            <span class="sync-label">上次同步成功</span>
+            <span id="sync-last-time" class="sync-value" style="font-size: 0.82rem; color: var(--text-muted);">尚未同步</span>
+          </div>
+          <div class="sync-status-row">
+            <span class="sync-label">全量離線書封</span>
+            <span id="sync-cover-count" class="sync-value" style="font-size: 0.82rem; color: var(--primary);">檢查中...</span>
+          </div>
+        </div>
+
+        <p class="sync-hint-text">
+          💡 <strong>離線優先模式</strong>：外出無網路或未開 VPN 時，App 直接秒開本地 IndexedDB；回到家連上區網或 VPN 時，點擊下方「立即手動同步」即可雙向同步。
+        </p>
+
+        <!-- 動作按鈕區 -->
+        <div class="sync-actions-group">
+          <button id="btn-trigger-sync" class="btn btn-primary btn-sync-action">
+            🔄 立即手動同步至 NAS
+          </button>
+          <button id="btn-force-update-sw" class="btn btn-secondary btn-sync-action">
+            ⚡ 檢查最新快取版本並重載
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Scroll To Top Floating Button -->
   <button id="floating-back-to-top" class="floating-back-to-top" title="回到頁首">
     ⬆️
   </button>
 
   <!-- JavaScript Modules -->
-  <script src="/static/js/db_offline.js?v=6"></script>
-  <script src="/static/js/scanner.js?v=6"></script>
-  <script src="/static/js/app.js?v=6"></script>
+  <script src="/static/js/db_offline.js?v=10"></script>
+  <script src="/static/js/scanner.js?v=10"></script>
+  <script src="/static/js/app.js?v=10"></script>
 </body>
 </html>

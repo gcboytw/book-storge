@@ -249,4 +249,13 @@ iPhone / iPad / Mac
   * 手機端維護本地離線資料庫（IndexedDB）與待同步隊列（Outbox Queue：新增、修改、軟刪除標記）。
   * 畫面提供「🔄 立即同步」按鈕，主動推送 Outbox 異動至 NAS，並拉取 NAS 增量更新（`updated_at > last_sync_time`）。
   * 衝突解決採「最後寫入者為準（Last-Write-Wins）」與「軟刪除（Soft Delete）」機制。
+  * 方案 A 書封全量預載：於雙向同步完成後在背景批次平滑預載所有書封至 Cache Storage，搭配 Service Worker 的 Cache First 策略，保證離線/飛航模式下各分頁封面 100% 秒開。
+
+---
+
+## 8. 記憶宮殿相關重要文檔索引
+
+- **[process.md](file:///c:/Users/gcboy/Documents/Google_Code/book-storge/doc/process.md)**：完整開發歷程、階段一～五架構細節與方案 A 實施紀錄。
+- **[0本藏書與資料庫路徑踩坑排查記錄.md](file:///c:/Users/gcboy/Documents/Google_Code/book-storge/doc/0%E6%9C%AC%E8%97%8F%E6%9B%B8%E8%88%87%E8%B3%87%E6%96%99%E5%BA%AB%E8%B7%AF%E5%BE%91%E8%B8%A9%E5%9D%91%E6%8E%92%E6%9F%A5%E8%A8%98%E9%8C%84.md)**：Docker Volume 映射、`.env` 嚴格規範與「0本藏書」根本原因排查 SOP。
+- **[修改.md](file:///c:/Users/gcboy/Documents/Google_Code/book-storge/doc/%E4%BF%AE%E6%94%B9.md)**：使用者需求 13 項完成對照清單。
 
