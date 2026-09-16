@@ -496,6 +496,8 @@ body {
   max-width: 550px;
   max-height: 90vh;
   overflow-y: auto;
+  overflow-x: hidden; /* 防止彈窗內容水平溢出（iPhone 直式保護）*/
+  box-sizing: border-box;
   box-shadow: var(--shadow-xl);
   display: flex;
   flex-direction: column;
@@ -516,6 +518,8 @@ body {
 
 .modal-body {
   padding: 1.25rem;
+  overflow-x: hidden;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -550,6 +554,10 @@ body {
   color: var(--text-primary);
   font-size: 0.95rem;
   outline: none;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0; /* 關鍵：防止 flex item 被 input 預設寬撐開 */
+  box-sizing: border-box;
 }
 
 .form-control:focus {
@@ -825,6 +833,39 @@ body {
   padding: 1rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* ISBN 搜尋輸入框 + 按鈕群組 */
+.manual-isbn-input-group {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  width: 100%;
+}
+
+.manual-isbn-input-group input {
+  flex: 1 1 auto;
+  min-width: 0; /* 防止長 placeholder 撐開容器 */
+  text-overflow: ellipsis;
+}
+
+.manual-isbn-input-group button {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* form-row 雙欄排列（寬螢幕）*/
+.form-row {
+  display: flex;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.form-row > .form-group {
+  flex: 1;
+  min-width: 0; /* 防止 flex item 被內部 input 撐開 */
 }
 
 /* ==========================================================================
@@ -1168,4 +1209,39 @@ body {
 }
 
 
+/* ==========================================================================
+   手機直式響應式：彈窗防溢出 & 表單單欄降級 (max-width: 768px)
+   ========================================================================== */
+@media (max-width: 768px) {
+  /* 縮減彈窗外邊距，釋出更多可用寬度 */
+  .modal-overlay {
+    padding: 0.75rem 0.5rem;
+  }
 
+  .modal-card {
+    max-height: 94vh;
+    border-radius: var(--radius-md);
+  }
+
+  .modal-header,
+  .modal-body,
+  .modal-footer {
+    padding: 1rem 0.85rem;
+  }
+
+  /* 手機直式下雙欄表單自動轉為單欄，避免並排擠壓破版 */
+  .form-row {
+    flex-direction: column !important;
+    gap: 0.75rem !important;
+  }
+
+  /* Footer 按鈕可換行，避免太窄時被截 */
+  .modal-footer {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .modal-footer .btn {
+    flex: 1 1 120px;
+  }
+}

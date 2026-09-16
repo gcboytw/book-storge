@@ -180,11 +180,9 @@ class BookLookupService:
                         if len(parts) > 1:
                             publication_date = parts[1].strip()
 
-                # 內容簡介
+                # 內容簡介：設計上不自動抓取外部簡介，避免三民書局頁籤文字（「商品簡介作者簡介名人推薦」）
+                # 汙染資料庫。簡介欄位保留給使用者手動填寫，此處一律回傳 None。
                 description = None
-                intro_div = soup.find("div", class_=lambda c: c and "intro" in str(c).lower()) or soup.find("div", id=lambda i: i and "intro" in str(i).lower())
-                if intro_div:
-                    description = intro_div.get_text(strip=True)
 
                 return {
                     "isbn13": isbn if len(isbn) == 13 else None,
@@ -276,7 +274,8 @@ class BookLookupService:
                             "publisher": vol.get("publisher"),
                             "publication_date": vol.get("publishedDate"),
                             "cover_url": cover_url,
-                            "description": vol.get("description"),
+                            # 設計上不自動帶入外部簡介，維持與三民書局來源一致的空白體驗
+                            "description": None,
                             "metadata_source": "GoogleBooks_API"
                         }
         except Exception:

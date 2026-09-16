@@ -1,4 +1,4 @@
-const CACHE_NAME = "book-storage-cache-v5.6";
+const CACHE_NAME = "book-storage-cache-v5.8.1";
 const STATIC_ASSETS = [
   "/",
   "/static/index.html",
@@ -7,6 +7,7 @@ const STATIC_ASSETS = [
   "/static/js/scanner.js",
   "/static/js/db_offline.js",
   "/static/js/vendor/zxing.min.js",
+  "/static/js/vendor/quagga.min.js",
   "/static/manifest.json",
   "/static/index-logo.png"
 ];
