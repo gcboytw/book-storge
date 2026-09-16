@@ -108,6 +108,9 @@
           <video id="scanner-video" class="scanner-video" playsinline></video>
           <div class="scanner-laser"></div>
         </div>
+        <div class="scanner-status-wrap">
+          <span id="scanner-status-badge" class="scanner-status-badge">🟢 引擎準備中...</span>
+        </div>
         <p class="scanner-hint">請將手機鏡頭對準書籍封底的 ISBN 條碼</p>
         <button id="btn-switch-to-manual" class="btn btn-secondary" style="width: 100%; margin-top: 0.75rem;">
           手動輸入 ISBN 查詢
@@ -234,6 +237,32 @@
     </div>
   </div>
 
+  <!-- Add Shelf Modal -->
+  <div id="add-shelf-modal" class="modal-overlay">
+    <div class="modal-card" style="max-width: 420px;">
+      <div class="modal-header">
+        <h3 class="modal-title">📁 新增自訂書架</h3>
+        <button id="btn-close-add-shelf" class="btn-icon">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-add-shelf" onsubmit="return false;">
+          <div class="form-group">
+            <label class="form-label">書架名稱 <span style="color: var(--danger);">*</span></label>
+            <input type="text" id="new-shelf-name" class="form-control" placeholder="例：待讀清單、工作參考、文學經典" maxlength="50" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">書架簡介 / 說明 (選填)</label>
+            <textarea id="new-shelf-desc" class="form-control" rows="2" placeholder="簡述此書架收藏的書本分類或用途..."></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-cancel-add-shelf" class="btn btn-secondary">取消</button>
+        <button id="btn-submit-add-shelf" class="btn btn-primary">➕ 建立書架</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Settings & Data Management Modal -->
   <div id="sync-modal" class="modal-overlay">
     <div class="modal-card sync-modal-card">
@@ -311,8 +340,8 @@
 
   <!-- JavaScript Modules -->
   <script src="/static/js/vendor/zxing.min.js"></script>
-  <script src="/static/js/db_offline.js?v=10"></script>
-  <script src="/static/js/scanner.js?v=10"></script>
-  <script src="/static/js/app.js?v=10"></script>
+  <script src="/static/js/db_offline.js?v=13"></script>
+  <script src="/static/js/scanner.js?v=14"></script>
+  <script src="/static/js/app.js?v=13"></script>
 </body>
 </html>

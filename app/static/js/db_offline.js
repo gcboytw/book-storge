@@ -407,6 +407,19 @@ class OfflineStorage {
     // 步驟 4: 本地 IndexedDB 合併
     await this.mergeSyncDown(downData);
 
+    // 步驟 4.1: 防禦機制三 - 手動雙向同步納入書架更新 (拉取最新書架並持久化至 IndexedDB)
+    try {
+      const shelfResp = await fetch("/api/shelves").catch(() => null);
+      if (shelfResp && shelfResp.ok) {
+        const freshShelves = await shelfResp.json();
+        if (Array.isArray(freshShelves)) {
+          await this.saveSyncMeta({ shelves: freshShelves });
+        }
+      }
+    } catch (shelfErr) {
+      console.warn("同步最新書架清單提示:", shelfErr);
+    }
+
     // 步驟 5: 方案 A - 在背景自動全量預載書封圖檔 (不卡住資料回傳)
     this.prefetchCovers().catch((e) => console.warn("書封背景預載提示:", e));
 
@@ -515,6 +528,29 @@ class OfflineStorage {
 
       request.onsuccess = () => resolve(request.result || null);
       request.onerror = (e) => reject(e.target.error);
+    });
+  }
+
+  /**
+   * 儲存/更新最後同步的 Metadata (例如書架清單快取)
+   */
+  async saveSyncMeta(partialMeta) {
+    if (!partialMeta || typeof partialMeta !== "object") return;
+    await this.init();
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(STORE_META, "readwrite");
+      const store = tx.objectStore(STORE_META);
+      const getReq = store.get("last_sync");
+
+      getReq.onsuccess = () => {
+        const current = getReq.result || { key: "last_sync" };
+        const updated = { ...current, ...partialMeta };
+        store.put(updated);
+      };
+      getReq.onerror = (e) => reject(e.target.error);
+
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = (e) => reject(e.target.error);
     });
   }
 

@@ -24,6 +24,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnMobileShelfTrigger = document.getElementById("btn-mobile-shelf-trigger");
   const mobileShelfLabel = document.getElementById("mobile-shelf-label");
   const btnCloseShelfSheet = document.getElementById("btn-close-shelf-sheet");
+  const addShelfModal = document.getElementById("add-shelf-modal");
+  const btnCloseAddShelf = document.getElementById("btn-close-add-shelf");
+  const btnCancelAddShelf = document.getElementById("btn-cancel-add-shelf");
+  const btnSubmitAddShelf = document.getElementById("btn-submit-add-shelf");
+  const newShelfNameInput = document.getElementById("new-shelf-name");
+  const newShelfDescInput = document.getElementById("new-shelf-desc");
   const btnOpenScan = document.getElementById("btn-open-scan");
   const btnCloseScan = document.getElementById("btn-close-scan");
   const btnCloseDetail = document.getElementById("btn-close-detail");
@@ -140,9 +146,26 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const offlineBooks = await window.offlineStorage.getAllBooks();
       const meta = await window.offlineStorage.getSyncMeta();
-      if (meta && meta.shelves) {
+      if (meta && meta.shelves && meta.shelves.length > 0) {
         shelvesList = meta.shelves;
         populateShelfDropdowns();
+      } else {
+        // 防禦機制一：離線自癒推導 (從本地藏書反向提取書架資料)
+        const deducedMap = new Map();
+        for (const item of offlineBooks) {
+          const sId = item.shelf_id;
+          const sName = item.shelf_name || (item.shelf ? item.shelf.name : null);
+          if (sId && sName && !deducedMap.has(sId)) {
+            deducedMap.set(sId, { id: sId, name: sName });
+          }
+        }
+        if (deducedMap.size > 0) {
+          shelvesList = Array.from(deducedMap.values()).sort((a, b) => a.id - b.id);
+          populateShelfDropdowns();
+          // 背景自癒寫入 IndexedDB meta
+          window.offlineStorage.saveSyncMeta({ shelves: shelvesList }).catch(() => {});
+          console.log(`🩹 觸發書架離線自癒推導：成功從本地藏書反向復原 ${shelvesList.length} 個書架`);
+        }
       }
 
       // 轉為統一的清單結構
@@ -223,6 +246,29 @@ document.addEventListener("DOMContentLoaded", () => {
     if (localBooks && localBooks.length > 0) {
       // 本地有資料，瞬間完成渲染，不主動發送 API 探測 NAS，避免戶外連線卡頓
       console.log(`⚡ 離線秒開完成：載入本地快取藏書共 ${localBooks.length} 本`);
+
+      // 防禦機制二：連線背景補齊書架清單 (不阻礙離線秒開，靜默在背景同步最新書架)
+      if (navigator.onLine) {
+        (async () => {
+          try {
+            const shelfResp = await fetch("/api/shelves").catch(() => null);
+            if (shelfResp && shelfResp.ok) {
+              const freshShelves = await shelfResp.json();
+              if (Array.isArray(freshShelves) && freshShelves.length > 0) {
+                shelvesList = freshShelves;
+                renderFilterTabs();
+                populateShelfDropdowns();
+                if (window.offlineStorage) {
+                  await window.offlineStorage.saveSyncMeta({ shelves: freshShelves });
+                }
+                console.log(`🔄 背景補齊書架清單完成，共載入 ${freshShelves.length} 個書架`);
+              }
+            }
+          } catch (bgErr) {
+            // 背景靜默忽略
+          }
+        })();
+      }
     } else {
       // 本地完全無資料 (首次在該手機安裝使用)，嘗試連線 NAS 初始化
       if (navigator.onLine) {
@@ -279,6 +325,12 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
     }
 
+    desktopHtml += `
+      <button id="btn-desktop-add-shelf" class="filter-tab filter-tab-add" title="新增自訂書架">
+        ➕ 新增書架
+      </button>
+    `;
+
     filterTabs.innerHTML = desktopHtml;
 
     // 3. 渲染手機版 Bottom Sheet 列表
@@ -313,11 +365,25 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
       }
 
+      sheetHtml += `
+        <button id="btn-mobile-add-shelf" class="sheet-shelf-item sheet-shelf-item-add" title="新增自訂書架">
+          <div class="sheet-shelf-left">
+            <span>➕</span>
+            <span>新增自訂書架</span>
+          </div>
+        </button>
+      `;
+
       shelfSheetList.innerHTML = sheetHtml;
 
       // 綁定手機抽屜項目點擊事件
       shelfSheetList.querySelectorAll(".sheet-shelf-item").forEach((item) => {
         item.addEventListener("click", () => {
+          if (item.id === "btn-mobile-add-shelf") {
+            closeShelfBottomSheet();
+            openAddShelfModal();
+            return;
+          }
           currentFilter = item.dataset.filter;
           currentPage = 1;
           closeShelfBottomSheet();
@@ -330,8 +396,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // 4. 綁定桌面標籤點擊事件
     filterTabs.querySelectorAll(".filter-tab").forEach((tab) => {
       tab.addEventListener("click", () => {
+        if (tab.id === "btn-desktop-add-shelf") {
+          openAddShelfModal();
+          return;
+        }
         currentFilter = tab.dataset.filter;
-        currentPage = 1;
         renderFilterTabs();
         applyFiltersAndRender();
       });
@@ -365,6 +434,113 @@ document.addEventListener("DOMContentLoaded", () => {
     shelfBottomSheet.addEventListener("click", (e) => {
       if (e.target === shelfBottomSheet) {
         closeShelfBottomSheet();
+      }
+    });
+  }
+
+  // 6.2 新增書架 Modal 互動與 API 連動
+  function openAddShelfModal() {
+    if (newShelfNameInput) newShelfNameInput.value = "";
+    if (newShelfDescInput) newShelfDescInput.value = "";
+    if (addShelfModal) {
+      addShelfModal.classList.add("active");
+      setTimeout(() => {
+        if (newShelfNameInput) newShelfNameInput.focus();
+      }, 100);
+    }
+  }
+
+  function closeAddShelfModal() {
+    if (addShelfModal) {
+      addShelfModal.classList.remove("active");
+    }
+  }
+
+  async function handleCreateShelf() {
+    const name = newShelfNameInput ? newShelfNameInput.value.trim() : "";
+    const description = newShelfDescInput ? newShelfDescInput.value.trim() : "";
+
+    if (!name) {
+      alert("請填寫書架名稱！");
+      if (newShelfNameInput) newShelfNameInput.focus();
+      return;
+    }
+
+    // 檢查同名
+    if (shelvesList.some((s) => s.name.toLowerCase() === name.toLowerCase())) {
+      alert(`書架名稱「${name}」已存在，請使用其他名稱！`);
+      return;
+    }
+
+    if (!navigator.onLine) {
+      alert("⚠️ 目前處於離線狀態，新增書架需要連線至伺服器，請連上家中 Wi-Fi 或 VPN 後再試。");
+      return;
+    }
+
+    try {
+      if (btnSubmitAddShelf) {
+        btnSubmitAddShelf.disabled = true;
+        btnSubmitAddShelf.textContent = "建立中...";
+      }
+
+      const resp = await fetch("/api/shelves", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, description: description || null })
+      });
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.detail || `建立失敗 (HTTP ${resp.status})`);
+      }
+
+      const newShelf = await resp.json();
+
+      // 更新記憶體書架清單
+      shelvesList.push(newShelf);
+      shelvesList.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || (a.id || 0) - (b.id || 0));
+
+      // 持久化至 IndexedDB meta
+      if (window.offlineStorage) {
+        await window.offlineStorage.saveSyncMeta({ shelves: shelvesList });
+      }
+
+      // 重新渲染畫面與下拉選單
+      renderFilterTabs();
+      populateShelfDropdowns();
+
+      // 關閉 Modal
+      closeAddShelfModal();
+
+      // 自動切換篩選至新書架
+      currentFilter = `shelf:${newShelf.id}`;
+      renderFilterTabs();
+      applyFiltersAndRender();
+
+      alert(`🎉 書架「${name}」已成功建立！`);
+    } catch (err) {
+      alert("❌ 建立書架失敗：" + err.message);
+    } finally {
+      if (btnSubmitAddShelf) {
+        btnSubmitAddShelf.disabled = false;
+        btnSubmitAddShelf.textContent = "➕ 建立書架";
+      }
+    }
+  }
+
+  if (btnCloseAddShelf) btnCloseAddShelf.addEventListener("click", closeAddShelfModal);
+  if (btnCancelAddShelf) btnCancelAddShelf.addEventListener("click", closeAddShelfModal);
+  if (btnSubmitAddShelf) btnSubmitAddShelf.addEventListener("click", handleCreateShelf);
+  if (addShelfModal) {
+    addShelfModal.addEventListener("click", (e) => {
+      if (e.target === addShelfModal) closeAddShelfModal();
+    });
+  }
+  if (newShelfNameInput) {
+    newShelfNameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleCreateShelf();
       }
     });
   }
@@ -920,14 +1096,15 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       </div>
 
-      ${item.description ? `
-        <div class="form-group">
-          <label class="form-label">內容大意簡介</label>
-          <div style="font-size: 0.85rem; color: var(--text-secondary); max-height: 100px; overflow-y: auto; background: var(--bg-input); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm);">
-            ${item.description}
-          </div>
-        </div>
-      ` : ""}
+      <div class="form-group" style="margin-top: 0.75rem;">
+        <label class="form-label">書籍名稱 <span style="color: var(--danger);">*</span></label>
+        <input type="text" id="edit-title" class="form-control" placeholder="請輸入書名..." required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">內容大意簡介</label>
+        <textarea id="edit-desc" class="form-control" rows="3" placeholder="書籍簡介或內容大意..."></textarea>
+      </div>
 
       <div class="form-group">
         <label class="form-label">所屬書架</label>
@@ -939,6 +1116,11 @@ document.addEventListener("DOMContentLoaded", () => {
         <textarea id="edit-notes" class="form-control" rows="3" placeholder="記錄你的閱讀心得或備忘...">${item.notes || ''}</textarea>
       </div>
     `;
+
+    const editTitleEl = document.getElementById("edit-title");
+    if (editTitleEl) editTitleEl.value = item.title || "";
+    const editDescEl = document.getElementById("edit-desc");
+    if (editDescEl) editDescEl.value = item.description || "";
 
     const modalFooter = document.getElementById("detail-modal-footer");
     modalFooter.innerHTML = `
@@ -1006,11 +1188,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 儲存修改
     document.getElementById("btn-save-edit").onclick = async () => {
+      const editTitleEl = document.getElementById("edit-title");
+      const editDescEl = document.getElementById("edit-desc");
+      const titleVal = editTitleEl ? editTitleEl.value.trim() : item.title;
+      const descVal = editDescEl ? editDescEl.value.trim() : (item.description || "");
       const shelfVal = document.getElementById("edit-shelf").value;
       const notesVal = document.getElementById("edit-notes").value;
+
+      if (!titleVal) {
+        alert("請輸入書籍名稱！");
+        if (editTitleEl) editTitleEl.focus();
+        return;
+      }
+
+      const selectedShelf = shelvesList.find((s) => s.id === (shelfVal ? parseInt(shelfVal, 10) : null));
+
       const updatedFields = {
         ...item,
+        title: titleVal,
+        description: descVal || null,
         shelf_id: shelfVal ? parseInt(shelfVal, 10) : null,
+        shelf_name: selectedShelf ? selectedShelf.name : null,
+        shelf: selectedShelf ? { id: selectedShelf.id, name: selectedShelf.name } : null,
         notes: notesVal
       };
 
@@ -1021,6 +1220,8 @@ document.addEventListener("DOMContentLoaded", () => {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              title: updatedFields.title,
+              description: updatedFields.description,
               shelf_id: updatedFields.shelf_id,
               notes: updatedFields.notes
             })
@@ -1029,7 +1230,7 @@ document.addEventListener("DOMContentLoaded", () => {
             serverUpdated = true;
           }
         } catch (netErr) {
-          console.warn("線上更新失敗，轉為離線更新隊列:", netErr);
+          console.warn("線上更新失敗，轉為離線儲存:", netErr);
         }
       }
 
@@ -1040,8 +1241,16 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
+      // 立即更新前端當前 item 與 cachedBooks
+      Object.assign(item, updatedFields);
+      const targetIndex = cachedBooks.findIndex((b) => b.id === item.id || (b.uuid && b.uuid === item.uuid));
+      if (targetIndex !== -1) {
+        cachedBooks[targetIndex] = { ...cachedBooks[targetIndex], ...updatedFields };
+      }
+
       bookDetailModal.classList.remove("active");
       await loadOfflineData();
+      alert("✅ 書籍資訊（含書名與簡介）已成功儲存！");
     };
 
     // 移出藏書
