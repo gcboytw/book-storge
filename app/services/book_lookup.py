@@ -151,14 +151,11 @@ class BookLookupService:
                 if not title:
                     return None
 
-                # 封面
+                # 封面（延遲下載：查詢僅回傳外部圖片網址預覽，儲存或同步時才落地）
                 remote_cover_url = None
                 og_image = soup.find("meta", property="og:image")
                 if og_image and og_image.get("content"):
                     remote_cover_url = og_image["content"]
-
-                # 自動下載封面至本地伺服器
-                local_cover_url = cls.download_and_save_cover(remote_cover_url, isbn) if remote_cover_url else None
 
                 # 出版資訊
                 author = None
@@ -191,7 +188,7 @@ class BookLookupService:
                     "author_display": author,
                     "publisher": publisher,
                     "publication_date": publication_date,
-                    "cover_url": local_cover_url,
+                    "cover_url": remote_cover_url,
                     "description": description,
                     "metadata_source": "Sanmin_TW"
                 }
@@ -221,8 +218,7 @@ class BookLookupService:
                         
                         cover_url = None
                         if "cover" in item:
-                            raw_cover = item["cover"].get("large") or item["cover"].get("medium")
-                            cover_url = cls.download_and_save_cover(raw_cover, isbn) if raw_cover else None
+                            cover_url = item["cover"].get("large") or item["cover"].get("medium")
 
                         authors = [a["name"] for a in item.get("authors", []) if "name" in a]
                         publishers = [p["name"] for p in item.get("publishers", []) if "name" in p]
@@ -263,8 +259,7 @@ class BookLookupService:
                     data = resp.json()
                     if data.get("totalItems", 0) > 0 and "items" in data:
                         vol = data["items"][0].get("volumeInfo", {})
-                        raw_cover = vol.get("imageLinks", {}).get("thumbnail")
-                        cover_url = cls.download_and_save_cover(raw_cover, isbn) if raw_cover else None
+                        cover_url = vol.get("imageLinks", {}).get("thumbnail")
 
                         return {
                             "isbn13": isbn if len(isbn) == 13 else None,

@@ -184,7 +184,9 @@ document.addEventListener("DOMContentLoaded", () => {
         description: item.description,
         category: item.category,
         shelf_id: item.shelf_id,
-        shelf: item.shelf_name ? { id: item.shelf_id, name: item.shelf_name } : null,
+        shelf: (item.shelf_id && item.shelf_name && item.shelf_name !== "未分類") 
+          ? { id: item.shelf_id, name: item.shelf_name } 
+          : null,
         notes: item.notes,
         created_at: item.created_at || null,
         updated_at: item.updated_at || null
@@ -626,8 +628,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // 點擊卡片開啟詳情
     booksGrid.querySelectorAll(".book-card").forEach((card) => {
       card.addEventListener("click", () => {
+        const uuid = card.dataset.uuid;
         const id = parseInt(card.dataset.id, 10);
-        const item = cachedBooks.find((x) => x.id === id);
+        const item = cachedBooks.find((x) => (uuid && x.uuid === uuid) || (id && x.id === id));
         if (item) openBookDetailModal(item);
       });
     });
@@ -697,13 +700,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // 10. 卡片渲染（僅書籍名稱、作者、書封、書架/出版社）
+  // 10. 卡片渲染（優先顯示書架；未指定書架時顯示出版社充當補充資訊；皆無則顯示未分類）
   function renderBookCard(item) {
     const coverUrl = item.cover_url || "";
-    const shelfName = item.shelf ? item.shelf.name : (item.publisher || "");
+    const hasRealShelf = item.shelf && item.shelf.name && item.shelf.name !== "未分類";
+    const shelfDisplay = hasRealShelf 
+      ? item.shelf.name 
+      : (item.publisher || "未分類");
 
     return `
-      <div class="book-card" data-id="${item.id}">
+      <div class="book-card" data-uuid="${item.uuid || ''}" data-id="${item.id || ''}">
         <div class="book-cover-wrap">
           ${coverUrl ? `
             <img class="book-cover-img" src="${coverUrl}" alt="${item.title}" loading="lazy" 
@@ -723,7 +729,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="book-title" title="${item.title}">${item.title}</div>
           <div class="book-author">${item.author_display || "作者不詳"}</div>
           <div class="book-meta-footer">
-            <span>${shelfName}</span>
+            <span>${shelfDisplay}</span>
           </div>
         </div>
       </div>
@@ -853,7 +859,33 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // 14. 手動新增 Modal
+  // 14. 手動新增 Modal 與封面即時預覽
+  const updateManualCoverPreview = (url) => {
+    const imgEl = document.getElementById("manual-cover-img");
+    const placeholderEl = document.getElementById("manual-cover-placeholder");
+    if (!imgEl || !placeholderEl) return;
+    const cleanUrl = (url || "").trim();
+    if (cleanUrl) {
+      imgEl.src = cleanUrl;
+      imgEl.style.display = "block";
+      placeholderEl.style.display = "none";
+      imgEl.onerror = () => {
+        imgEl.style.display = "none";
+        placeholderEl.style.display = "block";
+        placeholderEl.textContent = "圖片失效";
+      };
+      imgEl.onload = () => {
+        imgEl.style.display = "block";
+        placeholderEl.style.display = "none";
+      };
+    } else {
+      imgEl.src = "";
+      imgEl.style.display = "none";
+      placeholderEl.style.display = "block";
+      placeholderEl.textContent = "無封面";
+    }
+  };
+
   function openManualAddModal(presetData = null) {
     populateShelfDropdowns();
 
@@ -866,11 +898,13 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("manual-cover").value = presetData.cover_url || "";
       document.getElementById("manual-category").value = presetData.category || "";
       document.getElementById("manual-desc").value = presetData.description || "";
+      updateManualCoverPreview(presetData.cover_url || "");
       if (manualIsbnInput && (presetData.isbn13 || presetData.isbn10)) {
         manualIsbnInput.value = presetData.isbn13 || presetData.isbn10;
       }
     } else {
       customBookForm.reset();
+      updateManualCoverPreview("");
       if (manualIsbnInput) manualIsbnInput.value = "";
     }
 
@@ -950,14 +984,23 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("manual-cover").value = b.cover_url || "";
         document.getElementById("manual-category").value = b.category || "";
         document.getElementById("manual-desc").value = b.description || "";
+        updateManualCoverPreview(b.cover_url || "");
 
-        hintEl.textContent = `✅ 成功取得書目《${b.title}》！封面已自動下載至伺服器。`;
+        hintEl.textContent = `🎉 成功解析書目《${b.title}》！封面已顯示即時預覽，點擊下方「儲存並加入藏書」即可備份落地。`;
       } catch (err) {
         hintEl.textContent = `⚠️ 無法連線至伺服器，已為您填入 ISBN 欄位。您可直接點擊下方「儲存並加入藏書」進行離線儲存。`;
         document.getElementById("manual-isbn13").value = isbnVal;
       } finally {
         btnManualIsbnSearch.disabled = false;
       }
+    });
+  }
+
+  // 監聽手動封面網址輸入，即時更新預覽
+  const manualCoverInputEl = document.getElementById("manual-cover");
+  if (manualCoverInputEl) {
+    manualCoverInputEl.addEventListener("input", (e) => {
+      updateManualCoverPreview(e.target.value);
     });
   }
 
@@ -1101,7 +1144,29 @@ document.addEventListener("DOMContentLoaded", () => {
         <input type="text" id="edit-title" class="form-control" placeholder="請輸入書名..." required>
       </div>
 
-      <div class="form-group">
+      <div class="form-row" style="display: flex; gap: 0.75rem; margin-top: 0.75rem;">
+        <div class="form-group" style="flex: 1;">
+          <label class="form-label">作者</label>
+          <input type="text" id="edit-author" class="form-control" placeholder="例：作者姓名...">
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label class="form-label">出版社</label>
+          <input type="text" id="edit-publisher" class="form-control" placeholder="例：出版社名稱...">
+        </div>
+      </div>
+
+      <div class="form-row" style="display: flex; gap: 0.75rem; margin-top: 0.75rem;">
+        <div class="form-group" style="flex: 1;">
+          <label class="form-label">出版日期</label>
+          <input type="text" id="edit-pubdate" class="form-control" placeholder="例：2023-01-01">
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label class="form-label">ISBN</label>
+          <input type="text" id="edit-isbn" class="form-control" placeholder="例：978...">
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 0.75rem;">
         <label class="form-label">內容大意簡介</label>
         <textarea id="edit-desc" class="form-control" rows="3" placeholder="書籍簡介或內容大意..."></textarea>
       </div>
@@ -1119,6 +1184,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const editTitleEl = document.getElementById("edit-title");
     if (editTitleEl) editTitleEl.value = item.title || "";
+    const editAuthorEl = document.getElementById("edit-author");
+    if (editAuthorEl) editAuthorEl.value = item.author_display || item.author || "";
+    const editPublisherEl = document.getElementById("edit-publisher");
+    if (editPublisherEl) editPublisherEl.value = item.publisher || "";
+    const editPubdateEl = document.getElementById("edit-pubdate");
+    if (editPubdateEl) editPubdateEl.value = item.publication_date || item.publication_year || "";
+    const editIsbnEl = document.getElementById("edit-isbn");
+    if (editIsbnEl) editIsbnEl.value = item.isbn13 || item.isbn10 || item.ean || "";
     const editDescEl = document.getElementById("edit-desc");
     if (editDescEl) editDescEl.value = item.description || "";
 
@@ -1189,8 +1262,17 @@ document.addEventListener("DOMContentLoaded", () => {
     // 儲存修改
     document.getElementById("btn-save-edit").onclick = async () => {
       const editTitleEl = document.getElementById("edit-title");
+      const editAuthorEl = document.getElementById("edit-author");
+      const editPublisherEl = document.getElementById("edit-publisher");
+      const editPubdateEl = document.getElementById("edit-pubdate");
+      const editIsbnEl = document.getElementById("edit-isbn");
       const editDescEl = document.getElementById("edit-desc");
+
       const titleVal = editTitleEl ? editTitleEl.value.trim() : item.title;
+      const authorVal = editAuthorEl ? editAuthorEl.value.trim() : (item.author_display || "");
+      const publisherVal = editPublisherEl ? editPublisherEl.value.trim() : (item.publisher || "");
+      const pubdateVal = editPubdateEl ? editPubdateEl.value.trim() : (item.publication_date || "");
+      const isbnVal = editIsbnEl ? editIsbnEl.value.trim() : (item.isbn13 || item.isbn10 || "");
       const descVal = editDescEl ? editDescEl.value.trim() : (item.description || "");
       const shelfVal = document.getElementById("edit-shelf").value;
       const notesVal = document.getElementById("edit-notes").value;
@@ -1206,6 +1288,12 @@ document.addEventListener("DOMContentLoaded", () => {
       const updatedFields = {
         ...item,
         title: titleVal,
+        author: authorVal,
+        author_display: authorVal,
+        publisher: publisherVal,
+        publication_date: pubdateVal,
+        isbn13: isbnVal.length === 13 ? isbnVal : (item.isbn13 || (isbnVal || null)),
+        isbn10: isbnVal.length === 10 ? isbnVal : (item.isbn10 || null),
         description: descVal || null,
         shelf_id: shelfVal ? parseInt(shelfVal, 10) : null,
         shelf_name: selectedShelf ? selectedShelf.name : null,
@@ -1221,6 +1309,11 @@ document.addEventListener("DOMContentLoaded", () => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               title: updatedFields.title,
+              author_display: updatedFields.author_display,
+              publisher: updatedFields.publisher,
+              publication_date: updatedFields.publication_date,
+              isbn13: updatedFields.isbn13,
+              isbn10: updatedFields.isbn10,
               description: updatedFields.description,
               shelf_id: updatedFields.shelf_id,
               notes: updatedFields.notes
@@ -1243,14 +1336,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // 立即更新前端當前 item 與 cachedBooks
       Object.assign(item, updatedFields);
-      const targetIndex = cachedBooks.findIndex((b) => b.id === item.id || (b.uuid && b.uuid === item.uuid));
+      const targetIndex = cachedBooks.findIndex((b) => (item.id && b.id === item.id) || (item.uuid && b.uuid === item.uuid));
       if (targetIndex !== -1) {
         cachedBooks[targetIndex] = { ...cachedBooks[targetIndex], ...updatedFields };
       }
 
       bookDetailModal.classList.remove("active");
       await loadOfflineData();
-      alert("✅ 書籍資訊（含書名與簡介）已成功儲存！");
+      alert("✅ 書籍資訊（含作者、出版社、ISBN 等）已成功儲存！");
     };
 
     // 移出藏書

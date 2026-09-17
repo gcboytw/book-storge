@@ -1,4 +1,4 @@
-const CACHE_NAME = "book-storage-cache-v5.8.1";
+const CACHE_NAME = "book-storage-cache-v5.9";
 const STATIC_ASSETS = [
   "/",
   "/static/index.html",

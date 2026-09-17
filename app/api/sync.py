@@ -96,7 +96,7 @@ def serialize_book_for_sync(b: Book) -> dict:
         "category": b.category or "",
         "shelf_id": b.shelf_id,
         "shelf_uuid": b.shelf.uuid if b.shelf else None,
-        "shelf_name": b.shelf.name if b.shelf else "未分類",
+        "shelf_name": b.shelf.name if b.shelf else None,
         "status": b.status or "unread",
         "rating": b.rating,
         "notes": b.notes or "",
@@ -156,8 +156,14 @@ def sync_push_changes(payload: SyncUpRequest, db: Session = Depends(get_db)):
 
         if action == "delete":
             if existing_book:
+                cover_to_delete = existing_book.cover_url
                 db.add(DeletedRecord(uuid=existing_book.uuid, deleted_at=client_dt))
                 db.delete(existing_book)
+                # 若該書籍具有本地封面檔案，且資料庫無其他書籍共用該檔案，清理實體檔案
+                if cover_to_delete:
+                    other_using = db.query(Book).filter(Book.cover_url == cover_to_delete, Book.uuid != existing_book.uuid).first()
+                    if not other_using:
+                        BookLookupService.delete_cover_file(cover_to_delete)
             else:
                 db.add(DeletedRecord(uuid=item.uuid, deleted_at=client_dt))
             processed += 1
@@ -183,7 +189,18 @@ def sync_push_changes(payload: SyncUpRequest, db: Session = Depends(get_db)):
                     if "ean" in data:
                         existing_book.ean = data["ean"]
                     if "cover_url" in data:
-                        existing_book.cover_url = data["cover_url"]
+                        new_cover = data["cover_url"]
+                        if new_cover and new_cover.startswith("http"):
+                            new_cover = BookLookupService.download_and_save_cover(
+                                new_cover,
+                                data.get("isbn13") or data.get("isbn10") or existing_book.isbn13 or existing_book.isbn10 or existing_book.uuid
+                            )
+                        if existing_book.cover_url and existing_book.cover_url != new_cover:
+                            old_cover = existing_book.cover_url
+                            other_using_old = db.query(Book).filter(Book.cover_url == old_cover, Book.uuid != existing_book.uuid).first()
+                            if not other_using_old:
+                                BookLookupService.delete_cover_file(old_cover)
+                        existing_book.cover_url = new_cover
                     if "description" in data:
                         existing_book.description = data["description"]
                     if "category" in data:
@@ -200,7 +217,14 @@ def sync_push_changes(payload: SyncUpRequest, db: Session = Depends(get_db)):
                 try_enrich_book(existing_book, data.get("isbn13") or data.get("isbn10"))
                 processed += 1
             else:
-                # 建立新紀錄
+                # 建立新紀錄，若封面為遠端網址則自動下載落地
+                cover_url = data.get("cover_url", "")
+                if cover_url and cover_url.startswith("http"):
+                    cover_url = BookLookupService.download_and_save_cover(
+                        cover_url,
+                        data.get("isbn13") or data.get("isbn10") or item.uuid
+                    )
+
                 new_book = Book(
                     uuid=item.uuid,
                     title=data.get("title", "未命名書籍"),
@@ -211,7 +235,7 @@ def sync_push_changes(payload: SyncUpRequest, db: Session = Depends(get_db)):
                     isbn13=data.get("isbn13", ""),
                     isbn10=data.get("isbn10", ""),
                     ean=data.get("ean", ""),
-                    cover_url=data.get("cover_url", ""),
+                    cover_url=cover_url,
                     description=data.get("description", ""),
                     category=data.get("category", ""),
                     shelf_id=data.get("shelf_id"),
