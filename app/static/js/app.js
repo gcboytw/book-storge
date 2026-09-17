@@ -791,9 +791,35 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // ISBN 查重輔助函式 (比對本地快取中的 isbn13, isbn10, ean)
+  function findDuplicateBook(rawIsbn) {
+    if (!rawIsbn) return null;
+    const clean = String(rawIsbn).replace(/[^0-9X]/gi, "");
+    if (!clean) return null;
+    return cachedBooks.find((b) => {
+      const b13 = (b.isbn13 || "").replace(/[^0-9X]/gi, "");
+      const b10 = (b.isbn10 || "").replace(/[^0-9X]/gi, "");
+      const bEan = (b.ean || "").replace(/[^0-9X]/gi, "");
+      return clean === b13 || clean === b10 || clean === bEan;
+    });
+  }
+
   // 13. 掃描條碼成功回呼 (支援線上即時查書 + 離線免打字快速入庫)
   async function onBarcodeDetected(isbn) {
     console.log("掃描偵測到 ISBN:", isbn);
+
+    // 查重第一防線：先比對本地快取，無論離線或線上皆即時提示
+    const dup = findDuplicateBook(isbn);
+    if (dup) {
+      const shelfTip = dup.shelf && dup.shelf.name ? `（位於：${dup.shelf.name}）` : "";
+      if (confirm(`📚 您的藏書庫中已存在相同 ISBN 的書籍：\n《${dup.title}》${shelfTip}\n\n是否要立即為您開啟這本書的詳細資訊？`)) {
+        closeScanner();
+        openBookDetailModal(dup);
+      } else {
+        closeScanner();
+      }
+      return;
+    }
 
     // 若處於離線狀態，直接免打字極速入庫
     if (!navigator.onLine) {
@@ -931,6 +957,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const hintEl = document.getElementById("manual-isbn-hint");
 
+      // 查重防護：檢查本地是否已擁有這本書
+      const dup = findDuplicateBook(isbnVal);
+      if (dup) {
+        const shelfTip = dup.shelf && dup.shelf.name ? `（位於：${dup.shelf.name}）` : "";
+        hintEl.textContent = `⚠️ 藏書庫中已存在此書：《${dup.title}》${shelfTip}！`;
+        if (confirm(`📚 您的藏書庫中已存在相同 ISBN 的書籍：\n《${dup.title}》${shelfTip}\n\n是否要立即為您開啟詳細資訊？`)) {
+          closeManualAddModal();
+          openBookDetailModal(dup);
+        }
+        return;
+      }
+
       // 離線情境：一鍵極速快存入庫，不關閉鍵盤方便連打
       if (!navigator.onLine) {
         hintEl.textContent = `⚡ 正在離線快存 ISBN [${isbnVal}]...`;
@@ -1010,6 +1048,19 @@ document.addEventListener("DOMContentLoaded", () => {
       let title = document.getElementById("manual-title").value.trim();
       const isbn13 = document.getElementById("manual-isbn13").value.trim();
 
+      // 防呆查重：若有填寫 ISBN，先確認未重複
+      if (isbn13) {
+        const dup = findDuplicateBook(isbn13);
+        if (dup) {
+          const shelfTip = dup.shelf && dup.shelf.name ? `（位於：${dup.shelf.name}）` : "";
+          if (confirm(`📚 您的藏書庫中已存在相同 ISBN 的書籍：\n《${dup.title}》${shelfTip}\n\n是否要立即為您開啟詳細資訊？`)) {
+            closeManualAddModal();
+            openBookDetailModal(dup);
+          }
+          return;
+        }
+      }
+
       // 若書名為空但填了 ISBN，允許離線以 [待補全] 快速存檔
       if (!title) {
         if (isbn13) {
@@ -1066,8 +1117,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 await window.offlineStorage.markAsSynced([savedItem.uuid]);
               }
               serverSaved = true;
+            } else {
+              const errData = await createBookResp.json().catch(() => ({}));
+              throw new Error(errData.detail || `新增失敗 (HTTP ${createBookResp.status})`);
             }
           } catch (netErr) {
+            if (netErr.message && netErr.message.includes("已存在")) {
+              throw netErr;
+            }
             console.warn("線上新增伺服器無回應，自動降級為離線新增:", netErr);
           }
         }

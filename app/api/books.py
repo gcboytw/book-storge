@@ -104,13 +104,22 @@ def get_book(book_id: int, db: Session = Depends(get_db)):
 @router.post("/books", response_model=BookResponse, status_code=status.HTTP_201_CREATED)
 def create_book(payload: BookCreate, db: Session = Depends(get_db)):
     """新增藏書 (若封面為外部網路圖片自動下載至伺服器存檔)"""
-    # 檢查是否已存在相同的 ISBN
-    if payload.isbn13:
-        exist = db.query(Book).filter(Book.isbn13 == payload.isbn13).first()
+    # 檢查是否已存在相同的 ISBN (聯合比對 isbn13, isbn10, ean 並做字串清洗)
+    clean_target = (
+        BookLookupService.clean_isbn(payload.isbn13) if payload.isbn13
+        else (BookLookupService.clean_isbn(payload.isbn10) if payload.isbn10
+        else (BookLookupService.clean_isbn(payload.ean) if payload.ean else None))
+    )
+    if clean_target:
+        exist = db.query(Book).filter(
+            (Book.isbn13 == clean_target) |
+            (Book.isbn10 == clean_target) |
+            (Book.ean == clean_target)
+        ).first()
         if exist:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"ISBN [{payload.isbn13}] 的書籍已存在於藏書清單中囉！"
+                detail=f"藏書庫中已存在相同 ISBN 的書籍：《{exist.title}》！"
             )
 
     data = payload.model_dump(exclude_unset=True)

@@ -217,37 +217,57 @@ def sync_push_changes(payload: SyncUpRequest, db: Session = Depends(get_db)):
                 try_enrich_book(existing_book, data.get("isbn13") or data.get("isbn10"))
                 processed += 1
             else:
-                # 建立新紀錄，若封面為遠端網址則自動下載落地
-                cover_url = data.get("cover_url", "")
-                if cover_url and cover_url.startswith("http"):
-                    cover_url = BookLookupService.download_and_save_cover(
-                        cover_url,
-                        data.get("isbn13") or data.get("isbn10") or item.uuid
-                    )
+                # 檢查是否已存在相同 ISBN (避免離線重複新增產生雙胞胎)
+                isbn_candidate = data.get("isbn13") or data.get("isbn10") or data.get("ean")
+                clean_isbn_val = BookLookupService.clean_isbn(isbn_candidate) if isbn_candidate else None
+                dup_book = None
+                if clean_isbn_val:
+                    dup_book = db.query(Book).filter(
+                        (Book.isbn13 == clean_isbn_val) |
+                        (Book.isbn10 == clean_isbn_val) |
+                        (Book.ean == clean_isbn_val)
+                    ).first()
 
-                new_book = Book(
-                    uuid=item.uuid,
-                    title=data.get("title", "未命名書籍"),
-                    subtitle=data.get("subtitle", ""),
-                    author_display=data.get("author") or data.get("author_display", ""),
-                    publisher=data.get("publisher", ""),
-                    publication_date=data.get("publication_date", ""),
-                    isbn13=data.get("isbn13", ""),
-                    isbn10=data.get("isbn10", ""),
-                    ean=data.get("ean", ""),
-                    cover_url=cover_url,
-                    description=data.get("description", ""),
-                    category=data.get("category", ""),
-                    shelf_id=data.get("shelf_id"),
-                    status=data.get("status", "unread"),
-                    rating=data.get("rating"),
-                    notes=data.get("notes", ""),
-                    created_at=parse_iso_datetime(data.get("created_at")) or client_dt,
-                    updated_at=client_dt
-                )
-                db.add(new_book)
-                try_enrich_book(new_book, data.get("isbn13") or data.get("isbn10"))
-                processed += 1
+                if dup_book:
+                    # 資料庫已有此書，智慧合併欄位，避免重複建立第二本
+                    if data.get("notes") and not dup_book.notes:
+                        dup_book.notes = data["notes"]
+                    if data.get("shelf_id") and not dup_book.shelf_id:
+                        dup_book.shelf_id = data["shelf_id"]
+                    dup_book.updated_at = client_dt
+                    processed += 1
+                else:
+                    # 建立新紀錄，若封面為遠端網址則自動下載落地
+                    cover_url = data.get("cover_url", "")
+                    if cover_url and cover_url.startswith("http"):
+                        cover_url = BookLookupService.download_and_save_cover(
+                            cover_url,
+                            clean_isbn_val or item.uuid
+                        )
+
+                    new_book = Book(
+                        uuid=item.uuid,
+                        title=data.get("title", "未命名書籍"),
+                        subtitle=data.get("subtitle", ""),
+                        author_display=data.get("author") or data.get("author_display", ""),
+                        publisher=data.get("publisher", ""),
+                        publication_date=data.get("publication_date", ""),
+                        isbn13=clean_isbn_val if (clean_isbn_val and len(clean_isbn_val) == 13) else (data.get("isbn13") or ""),
+                        isbn10=clean_isbn_val if (clean_isbn_val and len(clean_isbn_val) == 10) else (data.get("isbn10") or ""),
+                        ean=data.get("ean", ""),
+                        cover_url=cover_url,
+                        description=data.get("description", ""),
+                        category=data.get("category", ""),
+                        shelf_id=data.get("shelf_id"),
+                        status=data.get("status", "unread"),
+                        rating=data.get("rating"),
+                        notes=data.get("notes", ""),
+                        created_at=parse_iso_datetime(data.get("created_at")) or client_dt,
+                        updated_at=client_dt
+                    )
+                    db.add(new_book)
+                    try_enrich_book(new_book, clean_isbn_val or data.get("isbn13") or data.get("isbn10"))
+                    processed += 1
 
     db.commit()
 
